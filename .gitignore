@@ -1,0 +1,9 @@
+test/*
+out/*
+*.o
+a.out
+.*.swp
+.*.swo
+*.a
+*.lib
+*.so
