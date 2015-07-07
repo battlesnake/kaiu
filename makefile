@@ -2,7 +2,7 @@ tests := trigger event_loop
 
 cxx := g++
 
-.PHONY: test clean
+.PHONY: test clean default all list-deps
 
 default: all
 
@@ -11,6 +11,9 @@ all:
 
 clean:
 	rm -rf -- test/
+
+list-deps:
+	@perl -ne 'print $$1."\n" if m/#include <([^>]+)>/' *.h *.cpp *.tpp | sort | uniq
 
 test/:
 	mkdir -p $@
