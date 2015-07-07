@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -euo pipefail
+
+make clean
+
+clear; tmux clear-history || clear; clear
+
+for test in "$@"; do
+	make -B test/"${test}" && test/"${test}"
+done
