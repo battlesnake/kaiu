@@ -10,20 +10,19 @@ using namespace std;
 
 class AbstractEventLoop;
 
-template <typename ResultPromise, typename... Args>
+template <typename Result, typename... Args>
 class Task {
 public:
-	using Target = function<ResultPromise(AbstractEventLoop& loop, Args...)>;
-	Task(const EventLoopPool pool, Target& func);
-	template <typename = typename enable_if<!is_void<ResultPromise>::value>::type>
-		void operator ()(AbstractEventLoop& loop, Args&&... args);
-	template <typename = typename enable_if<is_void<ResultPromise>::value>::type>
-		ResultPromise operator ()(AbstractEventLoop& loop, Args&&... args);
+	using ResultPromise = Promise<Result>;
+	using Action = function<ResultPromise(AbstractEventLoop& loop, Args...)>;
+	Task(const EventLoopPool pool, Action& action);
+	Task(const EventLoopPool pool, Action&& action);
+	ResultPromise operator ()(AbstractEventLoop& loop, Args&&... args);
 private:
 	EventLoopPool pool;
-	Target func;
+	Action action;
 };
 
 }
 
-#include "task.tpp"
+#include "task.tcc"

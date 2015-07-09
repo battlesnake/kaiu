@@ -1,14 +1,15 @@
-tests := trigger event_loop
+tests := trigger event_loop promise
 
-cxx := g++
-#cxx := clang++
+#cxx := g++ -std=c++14
+cxx := clang++ -std=c++14
+cxxopts := -lpthread -Wall -g -O0
 
 .PHONY: test clean default all list-deps
 
 default: all
 
 all:
-	$(cxx) -std=c++14 $(wildcard *.cpp) -lpthread -Wall -g -fsyntax-only 2>&1 | pretty-log
+	$(cxx) $(cxxopts) -fsyntax-only $(wildcard *.cpp) 2>&1 | pretty-log
 
 clean:
 	rm -rf -- test/
@@ -19,8 +20,11 @@ list-deps:
 test/:
 	mkdir -p $@
 
+test/promise: promise.cpp spinlock.cpp | test/
+	$(cxx) $(cxxopts) -D$(<:%.cpp=test_%) $^ -o $@ 2>&1 | pretty-log
+
 test/%: %.cpp | test/
-	$(cxx) -std=c++14 $^ -D$(<:%.cpp=test_%) -lpthread -Wall -g -o $@ 2>&1 | pretty-log
+	$(cxx) $(cxxopts) -D$(<:%.cpp=test_%) $^ -o $@ 2>&1 | pretty-log
 
 test: $(tests:%=test/%) | test/
 	@echo ""

@@ -2,10 +2,87 @@
 
 set -euo pipefail
 
-make clean
+if (( $# == 0 )); then
+	printf >&2 -- 'Test name(s) required'
+	exit
+fi
 
-clear; tmux clear-history || clear; clear
+if [ "$1" == "--here" ]; then
+	shift
+else
+	tmux new-window -n 'Tests' "exec '$0' --here $(printf -- " '%s'" "$@")"
+	exit
+fi
 
-for test in "$@"; do
-	make -B test/"${test}" && test/"${test}"
+function run {
+	local test="$1" target="$2"
+	printf -- '\n\e[1mRun (%s)\e[0m\n' "${test}"
+	"${target}"
+	printf >&2 '\n\e[1mDONE\e[0m\n'
+	read LINE
+}
+
+function debug {
+	local test="$1" target="$2"
+	printf -- '\n\e[1mDebug (%s)\e[0m\n' "${test}"
+	gdb -tui -q -ex 'run' "${target}"
+	printf >&2 '\n\e[1mDONE\e[0m\n'
+}
+
+function memcheck {
+	local test="$1" target="$2"
+	printf -- '\n\e[1mMemcheck (%s) [process output]\e[0m\n' "${test}"
+	(
+		set +e
+		function cleanup {
+			kill "$(cat "${valtmp}.pid")"
+			rm -f -- "${valtmp}".{fifo,pid}
+		}
+		trap cleanup ERR
+		declare valtmp="$(mktemp -u)"
+		mkfifo "${valtmp}.fifo"
+		declare mainpid="${BASHPID}"
+		tmux split-window -dh "$(cat <<EOF
+			printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
+			echo "\$BASHPID" > '${valtmp}.pid'
+			val-color < '${valtmp}.fifo'
+			read LINE
+			kill "${mainpid}"
+EOF
+		)"
+		valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
+		printf >&2 '\n\e[1mDONE\e[0m\n'
+		read LINE
+		cleanup
+	)
+}
+
+declare action='debug'
+
+while (( $# )); do
+	# Action
+	case "$1" in
+	run:) action='run'; shift; continue;;
+	debug:) action='debug'; shift; continue;;
+	mem:) ;&
+	memcheck:) action='memcheck'; shift; continue;;
+	esac
+	# Test
+	declare test="$1"
+	shift
+	declare target="test/${test}"
+	rm -f -- "${target}"
+	if make -B "${target}" && [ -e "${target}" ]; then
+		clear;
+		case "${action}" in
+		run)
+			run "${test}" "${target}";;
+		debug)
+			debug "${test}" "${target}";;
+		memcheck)
+			memcheck "${test}" "${target}";;
+		esac
+	else
+		read LINE
+	fi
 done
