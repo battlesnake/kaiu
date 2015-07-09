@@ -1,3 +1,4 @@
+#pragma once
 #include "concurrent_queue.h"
 
 namespace mark {
@@ -5,7 +6,6 @@ namespace mark {
 template <class T>
 ConcurrentQueue<T>::ConcurrentQueue() 
 {
-	stopping = false;
 }
 
 template <class T>

@@ -12,12 +12,17 @@
 
 namespace mark {
 
+using namespace std;
+
 class AbstractEventLoop;
 
-using EventFunc = std::function<void(AbstractEventLoop&)>;
-using Event = std::unique_ptr<EventFunc>;
+template <typename Result, typename... Args>
+class Task;
 
-enum EventLoopPool {
+using EventFunc = function<void(AbstractEventLoop&)>;
+using Event = unique_ptr<EventFunc>;
+
+enum class EventLoopPool : int {
 	reactor = 100,
 	interaction = 200,
 	service = 300,
@@ -28,18 +33,37 @@ enum EventLoopPool {
 	custom_base = 100000
 };
 
+struct EventLoopPoolHash
+{
+	template <typename T> std::size_t operator()(T t) const
+	{
+		return static_cast<std::size_t>(t);
+	}
+};
+
 /*
  * Base class for event loops
  */
 class AbstractEventLoop {
 public:
-	AbstractEventLoop& operator =(const AbstractEventLoop &) = delete;
-	AbstractEventLoop(const AbstractEventLoop &) = delete;
+	AbstractEventLoop& operator =(const AbstractEventLoop&) = delete;
+	AbstractEventLoop(const AbstractEventLoop&) = delete;
 	virtual void push(const EventLoopPool pool, const EventFunc& event) = 0;
+	void push(const EventFunc& event) { push(defaultPool, event); };
+	template <typename... Args> void push(Task<Args...> task, Args... args) {
+		task(*this, args...);
+	};
+	template <typename T> AbstractEventLoop& operator <<(T arg) {
+		push(arg);
+		return *this;
+	};
 protected:
-	AbstractEventLoop() = default;
+	AbstractEventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
 	~AbstractEventLoop() = default;
 	virtual Event next(const EventLoopPool pool) = 0;
+	Event next() { return next(defaultPool); };
+private:
+	EventLoopPool defaultPool;
 };
 
 /*
@@ -48,13 +72,15 @@ protected:
 class EventLoop : public virtual AbstractEventLoop {
 public:
 	EventLoop& operator =(const EventLoop &) = delete;
-	EventLoop(const EventLoop &) = delete;
-	EventLoop(const EventLoopPool pool, const EventFunc& start);
+	EventLoop(const EventLoop&) = delete;
+	EventLoop(const EventFunc& start);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
+	void push(const EventFunc& event) { push(EventLoopPool::reactor, event); };
 protected:
 	virtual Event next(const EventLoopPool pool) override;
+	Event next() { return next(EventLoopPool::reactor); };
 private:
-	std::queue<std::pair<EventLoopPool, Event>> queue;
+	queue<Event> events;
 	void do_loop();
 };
 
@@ -70,22 +96,24 @@ class ParallelEventLoop : public virtual AbstractEventLoop {
 public:
 	ParallelEventLoop& operator =(const ParallelEventLoop &) = delete;
 	ParallelEventLoop(const ParallelEventLoop &) = delete;
-	ParallelEventLoop(const std::unordered_map<EventLoopPool, size_t, std::hash<int>> pools);
-	void process_exceptions(std::function<void(std::exception&)> handler);
-	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
+	ParallelEventLoop(const unordered_map<EventLoopPool, size_t, EventLoopPoolHash> pools);
 	~ParallelEventLoop() throw();
+	void process_exceptions(function<void(exception&)> handler);
+	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
 protected:
 	virtual Event next(const EventLoopPool pool) override;
 private:
-	std::atomic<int> threads_starting;
-	std::condition_variable threads_started_cv;
-	std::mutex threads_started_mutex;
-	std::vector<std::thread> threads;
-	std::unordered_map<EventLoopPool, ConcurrentQueue<Event>, std::hash<int>> queues;
-	std::queue<std::exception> exceptions;
-	std::mutex exceptions_mutex;
+	atomic<int> threads_starting{0};
+	condition_variable threads_started_cv;
+	mutex threads_started_mutex;
+	vector<thread> threads;
+	unordered_map<EventLoopPool, ConcurrentQueue<Event>, EventLoopPoolHash> queues;
+	queue<exception> exceptions;
+	mutex exceptions_mutex;
 	void do_threaded_loop(const EventLoopPool pool);
 	void thread_started();
 };
 
 }
+
+#include "task.h"

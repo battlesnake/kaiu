@@ -19,7 +19,7 @@ public:
 	void stop();
 	bool is_stopping() const;
 private:
-	std::atomic<bool> stopping;
+	std::atomic<bool> stopping{false};
 	std::mutex mutex;
 	std::condition_variable cv;
 	std::queue<T> queue;

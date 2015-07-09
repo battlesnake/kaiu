@@ -1,6 +1,7 @@
 tests := trigger event_loop
 
 cxx := g++
+#cxx := clang++
 
 .PHONY: test clean default all list-deps
 
