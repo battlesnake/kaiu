@@ -112,6 +112,15 @@ void PromiseInternalBase::ensure_is_unbound() const
 	}
 }
 
+namespace promise {
+
+Promise<nullptr_t> begin_chain()
+{
+	return Promise<nullptr_t>{nullptr};
+}
+
+}
+
 }
 
 #ifdef test_promise
@@ -133,6 +142,8 @@ enum assertion_state { unknown, passed, failed };
 const vector<pair<const char *, const char *>> assertion_strings{
 	{ "IRPR", "Immediately resolved promise resolves" },
 	{ "IRCPR", "Immediately resolved chained promise resolves" },
+	{ "RVPF", "Resolved value passes through finally() stage" },
+	{ "JVPF", "Rejection passes through finally() stage" },
 	{ "ROPR", "Resolved promise<object> resolved correctly" },
 	{ "ARPR", "Asynchronously resolved promise resolved" },
 	{ "AJPJ", "Asynchronously rejected promise rejected" },
@@ -226,14 +237,46 @@ void run_tests() {
 				assert_fail("IRPR");
 				return 0;
 			})
-		->then<string>(
+		->then<int>(
 			[] (auto result) {
 				assert(result, 21.0, "IRCPR");
-				return "hello";
+				return 69;
 			},
 			[] (auto error) {
 				assert_fail("IRCPR");
-				return nullptr;
+				return -1;
+			})
+		->finally<int>(
+			[] {
+				return;
+			})
+		->then<int>(
+			[] (auto result) {
+				assert(result, 69, "RVPF");
+				throw runtime_error("oops");
+				return -1;
+			},
+			[] (auto error) {
+				assert_fail("RVPF");
+				throw runtime_error("oops");
+				return -1;
+			})
+		->finally<int>(
+			[] {
+				return;
+			})
+		->then<string>(
+			[] (auto result) {
+				assert_fail("JVPF");
+				return "hello";
+			},
+			[] (auto error) {
+				try {
+					rethrow_exception(error);
+				} catch (const exception& e) {
+					assert(string(e.what()), string("oops"), "JVPF");
+				}
+				return "hello";
 			})
 		->then<Promise<string>>(
 			[] (auto result) {
@@ -257,10 +300,11 @@ void run_tests() {
 				assert_fail("ARPR");
 				return Promise<int>(-1);
 			})
-		->then<int>([] (auto result) {
-			assert_fail("AJPJ");
-			return result;
-		})
+		->then<int>(
+			[] (auto result) {
+				assert_fail("AJPJ");
+				return result;
+			})
 		->except<int>([] (auto error) {
 			assert_pass("AJPJ");
 			try {
@@ -279,10 +323,11 @@ void run_tests() {
 				assert_fail("HJRPDV");
 				return true;
 			})
-		->finally([] {
-			assert_pass("FC");
-			throw runtime_error("bye");
-		})
+		->finally<bool>(
+			[] {
+				assert_pass("FC");
+				throw runtime_error("bye");
+			})
 		->then<char>(
 			[] (auto result) {
 				assert_fail("EFJP");
@@ -295,11 +340,12 @@ void run_tests() {
 			[] {
 				assert_pass("FCEF");
 			})
-		->finally([&done, &cv] {
-			assert_pass("DONE");
-			done = true;
-			cv.notify_one();
-		});
+		->finally(
+			[&done, &cv] {
+				assert_pass("DONE");
+				done = true;
+				cv.notify_one();
+			});
 	/* Wait for chain to complete */
 	unique_lock<mutex> lock(mx);
 	cv.wait(lock, [&done] { return done; });

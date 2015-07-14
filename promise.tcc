@@ -18,28 +18,12 @@ PromiseInternal<Result>::PromiseInternal(Result const& result)
 }
 
 template <typename Result>
-PromiseInternal<Result>::PromiseInternal(Result&& result)
-{
-	resolve(result);
-}
-
-template <typename Result>
 void PromiseInternal<Result>::resolve(Result const& result)
 {
 	ensure_is_still_pending();
 	UserspaceSpinlock lock(state_lock);
 	ensure_is_still_pending();
 	this->result = result;
-	resolved();
-}
-
-template <typename Result>
-void PromiseInternal<Result>::resolve(Result&& result)
-{
-	ensure_is_still_pending();
-	UserspaceSpinlock lock(state_lock);
-	ensure_is_still_pending();
-	this->result = move(result);
 	resolved();
 }
 
@@ -87,7 +71,7 @@ Promise<NextResult> PromiseInternal<Result>::then_p(
 		Promise<NextResult> nextResult;
 		try {
 			nextResult = next ? next(result) :
-				Promise<NextResult>(NextResult());
+				Promise<NextResult>(next_default_value<NextResult>(result));
 		} catch (exception) {
 			if (call_finally()) {
 				promise->reject(current_exception());
@@ -102,8 +86,11 @@ Promise<NextResult> PromiseInternal<Result>::then_p(
 	on_reject = [promise, handler, call_finally, this] {
 		Promise<NextResult> nextResult;
 		try {
-			nextResult = handler ? handler(error) :
-				Promise<NextResult>(nullptr, error);
+			if (handler) {
+				nextResult = handler(error);
+			} else {
+				rethrow_exception(error);
+			}
 		} catch (exception) {
 			if (call_finally()) {
 				promise->reject(current_exception());
@@ -152,17 +139,28 @@ Promise<NextResult> PromiseInternal<Result>::then_i(
 	};
 	/* Branch for if promise is resolved */
 	on_resolve = [promise, next, call_finally, this] {
+		NextResult nextResult;
 		try {
-			if (next) {
-				NextResult nextResult = next(result);
-				if (call_finally()) {
-					promise->resolve(nextResult);
-				}
+			nextResult = next ? next(result) :
+				next_default_value<NextResult>(result);
+		} catch (exception) {
+			if (call_finally()) {
+				promise->reject(current_exception());
+			}
+			return;
+		}
+		if (call_finally()) {
+			promise->resolve(nextResult);
+		}
+	};
+	/* Branch for if promise is rejected */
+	on_reject = [promise, handler, call_finally, this] {
+		NextResult nextResult;
+		try {
+			if (handler) {
+				nextResult = handler(error);
 			} else {
-				NextResult nextResult{};
-				if (call_finally()) {
-					promise->resolve(nextResult);
-				}
+				rethrow_exception(error);
 			}
 		} catch (exception) {
 			if (call_finally()) {
@@ -170,25 +168,8 @@ Promise<NextResult> PromiseInternal<Result>::then_i(
 			}
 			return;
 		}
-	};
-	/* Branch for if promise is rejected */
-	on_reject = [promise, handler, call_finally, this] {
-		try {
-			if (handler) {
-				NextResult nextResult = handler(error);
-				if (call_finally()) {
-					promise->resolve(nextResult);
-				}
-			} else {
-				if (call_finally()) {
-					promise->reject(error);
-				}
-			}
-		} catch (exception) {
-			if (call_finally()) {
-				promise->reject(current_exception());
-			}
-			return;
+		if (call_finally()) {
+			promise->resolve(nextResult);
 		}
 	};
 	assigned_callbacks();
@@ -243,6 +224,39 @@ void PromiseInternal<Result>::then(
 	assigned_callbacks();
 }
 
+template <typename Result>
+void PromiseInternal<Result>::except(const ExceptVoidFunc handler)
+{
+	then(nullptr, handler);
+}
+
+template <typename Result>
+void PromiseInternal<Result>::finally(const FinallyFunc finally)
+{
+	then(nullptr, nullptr, finally);
+}
+
+template <typename Result>
+template <typename NextResult>
+NextResult PromiseInternal<Result>::next_default_value(const Result& value) const
+{
+	constexpr bool same = is_same<NextResult, Result>::value;
+	if (!same) {
+		throw new logic_error(
+			"If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
+	}
+	/*
+	 * Reinterpret cast will only run if dest and source types are identical,
+	 * due to check above.  Although the check is performed at compile-time, we
+	 * avoid compile-time type-errors with this ugly cast, and we throw the type
+	 * error at run-time instead since we can't determine at compile-time
+	 * whether value passing would be required - therefore we would generate
+	 * invalid casts and compilation would fail even when we do not require
+	 * value passing.
+	 */
+	return *reinterpret_cast<const NextResult*>(&value);
+}
+
 /*** Promise ***/
 
 template <typename Result>
@@ -259,12 +273,6 @@ Promise<Result>::Promise() :
 
 template <typename Result>
 Promise<Result>::Promise(Result const& result) :
-	promise(new PromiseInternal<Result>(result))
-{
-}
-
-template <typename Result>
-Promise<Result>::Promise(Result&& result) :
 	promise(new PromiseInternal<Result>(result))
 {
 }
@@ -316,12 +324,6 @@ namespace promise {
 
 template <typename Result>
 Promise<Result> resolved(Result const& result)
-{
-	return Promise<Result>(result);
-}
-
-template <typename Result>
-Promise<Result> resolved(Result&& result)
 {
 	return Promise<Result>(result);
 }

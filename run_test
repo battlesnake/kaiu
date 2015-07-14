@@ -14,64 +14,93 @@ else
 	exit
 fi
 
-function run {
+function run {(
+	set +e
 	local test="$1" target="$2"
 	printf -- '\n\e[1mRun (%s)\e[0m\n' "${test}"
 	"${target}"
 	printf >&2 '\n\e[1mDONE\e[0m\n'
 	read LINE
-}
+)}
 
-function debug {
+function debug {(
+	set +e
 	local test="$1" target="$2"
 	printf -- '\n\e[1mDebug (%s)\e[0m\n' "${test}"
 	gdb -tui -q -ex 'run' "${target}"
 	printf >&2 '\n\e[1mDONE\e[0m\n'
-}
+)}
 
-function memcheck {
+function memcheck {(
+	set +e
 	local test="$1" target="$2"
 	printf -- '\n\e[1mMemcheck (%s) [process output]\e[0m\n' "${test}"
-	(
+
+	function cleanup {
+		kill "$(cat "${valtmp}.pid")"
+		rm -f -- "${valtmp}".{fifo,pid}
+	}
+	trap cleanup EXIT
+
+	declare valtmp="$(mktemp -u)"
+
+	mkfifo "${valtmp}.fifo"
+
+	declare mainpid="${BASHPID}"
+
+	tmux split-window -dh "$(cat <<EOF
 		set +e
+
 		function cleanup {
-			kill "$(cat "${valtmp}.pid")"
-			rm -f -- "${valtmp}".{fifo,pid}
-		}
-		trap cleanup ERR
-		declare valtmp="$(mktemp -u)"
-		mkfifo "${valtmp}.fifo"
-		declare mainpid="${BASHPID}"
-		tmux split-window -dh "$(cat <<EOF
-			printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
-			echo "\$BASHPID" > '${valtmp}.pid'
-			val-color < '${valtmp}.fifo'
-			read LINE
 			kill "${mainpid}"
-EOF
-		)"
-		valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
+		}
+		trap cleanup EXIT
+
+		echo "\$BASHPID" > '${valtmp}.pid'
+
+		printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
+		val-color < '${valtmp}.fifo'
+
 		printf >&2 '\n\e[1mDONE\e[0m\n'
+
 		read LINE
-		cleanup
-	)
-}
+EOF
+	)"
+
+	valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
+
+	printf >&2 '\n\e[1mDONE\e[0m\n'
+	read LINE
+)}
 
 declare action='debug'
 
 while (( $# )); do
 	# Action
 	case "$1" in
-	run:) action='run'; shift; continue;;
-	debug:) action='debug'; shift; continue;;
+	run:) action='run'
+		export cxxextra="-O2 -march=native -mtune=native -DNDEBUG"
+		shift
+		continue
+		;;
+	debug:) action='debug'
+		unset cxxextra
+		shift
+		continue
+		;;
 	mem:) ;&
-	memcheck:) action='memcheck'; shift; continue;;
+	memcheck:) action='memcheck'
+		unset cxxextra
+		shift
+		continue
+		;;
 	esac
 	# Test
 	declare test="$1"
 	shift
 	declare target="test/${test}"
 	rm -f -- "${target}"
+	export o_number
 	if make -B "${target}" && [ -e "${target}" ]; then
 		clear;
 		case "${action}" in

@@ -14,15 +14,16 @@ namespace mark {
 
 using namespace std;
 
-class AbstractEventLoop;
+class EventLoop;
 
 template <typename Result, typename... Args>
 class Task;
 
-using EventFunc = function<void(AbstractEventLoop&)>;
+using EventFunc = function<void(EventLoop&)>;
 using Event = unique_ptr<EventFunc>;
 
 enum class EventLoopPool : int {
+	invalid = 0,
 	reactor = 100,
 	interaction = 200,
 	service = 300,
@@ -44,22 +45,22 @@ struct EventLoopPoolHash
 /*
  * Base class for event loops
  */
-class AbstractEventLoop {
+class EventLoop {
 public:
-	AbstractEventLoop& operator =(const AbstractEventLoop&) = delete;
-	AbstractEventLoop(const AbstractEventLoop&) = delete;
+	EventLoop& operator =(const EventLoop&) = delete;
+	EventLoop(const EventLoop&) = delete;
 	virtual void push(const EventLoopPool pool, const EventFunc& event) = 0;
 	void push(const EventFunc& event) { push(defaultPool, event); };
 	template <typename... Args> void push(Task<Args...> task, Args... args) {
 		task(*this, args...);
 	};
-	template <typename T> AbstractEventLoop& operator <<(T arg) {
+	template <typename T> EventLoop& operator <<(T arg) {
 		push(arg);
 		return *this;
 	};
 protected:
-	AbstractEventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
-	~AbstractEventLoop() = default;
+	EventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
+	~EventLoop() = default;
 	virtual Event next(const EventLoopPool pool) = 0;
 	Event next() { return next(defaultPool); };
 private:
@@ -69,11 +70,11 @@ private:
 /*
  * Non-threaded event loop which exits when no more events are left to process
  */
-class EventLoop : public virtual AbstractEventLoop {
+class SynchronousEventLoop : public virtual EventLoop {
 public:
-	EventLoop& operator =(const EventLoop &) = delete;
-	EventLoop(const EventLoop&) = delete;
-	EventLoop(const EventFunc& start);
+	SynchronousEventLoop& operator =(const EventLoop &) = delete;
+	SynchronousEventLoop(const EventLoop&) = delete;
+	SynchronousEventLoop(const EventFunc& start);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
 	void push(const EventFunc& event) { push(EventLoopPool::reactor, event); };
 protected:
@@ -92,11 +93,11 @@ private:
  * the process_exceptions member function (e.g. periodically by the main
  * thread).
  */
-class ParallelEventLoop : public virtual AbstractEventLoop {
+class ParallelEventLoop : public virtual EventLoop {
 public:
 	ParallelEventLoop& operator =(const ParallelEventLoop &) = delete;
 	ParallelEventLoop(const ParallelEventLoop &) = delete;
-	ParallelEventLoop(const unordered_map<EventLoopPool, size_t, EventLoopPoolHash> pools);
+	ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools);
 	~ParallelEventLoop() throw();
 	void process_exceptions(function<void(exception&)> handler);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;

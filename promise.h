@@ -4,6 +4,7 @@
 #include <memory>
 #include <cstddef>
 #include <tuple>
+#include <type_traits>
 #include "spinlock.h"
 
 namespace mark {
@@ -140,10 +141,8 @@ public:
 	using type = Result;
 	/* Promise */
 	Promise();
-	/* Resolved promise (copy) */
+	/* Resolved promise */
 	Promise(Result const& result);
-	/* Resolved promise (move) */
-	Promise(Result&& result);
 	/* Rejected promise */
 	Promise(const nullptr_t dummy, exception_ptr error);
 	Promise(const nullptr_t dummy, const string& error);
@@ -201,8 +200,8 @@ protected:
 	 *
 	 *  no result  |  has result    |  relevant callback(s)
 	 *  or error   |  value/error   |  have been called
-	 *             |                | 
-	 * 
+	 *             |                |
+	 *
 	 *              --> resolved -->
 	 *  pending -->|                |--> completed
 	 *              --> rejected -->
@@ -300,10 +299,8 @@ public:
 	PromiseInternal(const PromiseInternal<Result>&) = delete;
 	/* Construct an immediately resolved (copy/move result) */
 	PromiseInternal(Result const& result);
-	PromiseInternal(Result&& result);
 	/* Resolve (copy/move result) */
 	void resolve(Result const& result);
-	void resolve(Result&& result);
 	using PromiseInternalBase::reject;
 	/* Forwards the result of this promise to another promise */
 	void forward_to(Promise<Result> next);
@@ -339,26 +336,27 @@ public:
 		Promise<T> except(const ExceptFunc<T> handler)
 			{ return then<T>(nullptr, handler); };
 	/* Finally */
-	template <typename Finally = FinallyFunc>
-		Promise<Result> finally(const Finally finally)
-			{ return then<Result>(nullptr, nullptr, finally); };
+	template <typename T = Result>
+		Promise<T> finally(const FinallyFunc finally)
+			{ return then<T>(nullptr, nullptr, finally); };
 	/* Then (end promise chain) */
 	void then(
 		const ThenVoidFunc next,
 		const ExceptVoidFunc handler = nullptr,
 		const FinallyFunc finally = nullptr);
 	/* Except (end promise chain) */
-	void except(const ExceptVoidFunc handler)
-		{ then(nullptr, handler); };
+	void except(const ExceptVoidFunc handler);
 	/* Finally (end promise chain) */
-	void finally(const FinallyFunc finally)
-		{ then(nullptr, nullptr, finally); };
+	void finally(const FinallyFunc finally);
 private:
 	/*
 	 * Stores the result so that we can avoid race conditions between binding
 	 * callbacks to the promise and resolving/rejecting the promise.
 	 */
 	Result result{};
+	/* Pass current value onwards if no 'next' callback */
+	template <typename NextResult>
+		NextResult next_default_value(const Result& value) const;
 };
 
 /*** Utils ***/
@@ -366,13 +364,10 @@ namespace promise {
 
 /* Construct a resolved promise */
 
-Promise<nullptr_t> begin_chain() { return Promise<nullptr_t>{nullptr}; }
+Promise<nullptr_t> begin_chain();
 
 template <typename Result>
 Promise<Result> resolved(Result const& result);
-
-template <typename Result>
-Promise<Result> resolved(Result&& result);
 
 /* Construct a rejected promise */
 
@@ -393,7 +388,7 @@ Promise<Result> rejected(const string& error);
  * Returns nullptr iff func==nullptr
  */
 template <typename Result, typename... Args>
-static function<Promise<Result>(Args...)> make_factory(
+function<Promise<Result>(Args...)> make_factory(
 	function<Result(Args...)>& func);
 
 /*
