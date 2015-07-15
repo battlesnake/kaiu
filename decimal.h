@@ -4,31 +4,53 @@
 #include <type_traits>
 #include <limits>
 
+/*
+ * Not intended for production use, just something to provide load for testing
+ * other stuff - hence base being fixed at 10 and there being no sign bit.
+ */
+
 namespace mark {
 
 using namespace std;
 
 class decimal {
 public:
-	using digit = unsigned char;
+	using digit = char;
 	decimal();
 	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
 	decimal(T val);
 	decimal(const string& val);
-	operator string() const;
-	operator bool() const;
-	digit& operator [](const int index);
-	digit operator [](const int index) const;
+	explicit operator string() const;
+	explicit operator bool() const;
+	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
+	explicit operator T() const;
+	digit& operator [](const size_t index);
+	digit operator [](const size_t index) const;
 	size_t length() const;
 	decimal operator +=(const decimal& b);
 	decimal operator +(const decimal& b) const;
+	decimal operator ++();
+	decimal operator -=(const decimal& b);
+	decimal operator -(const decimal& b) const;
+	decimal operator --();
 	decimal operator *(const decimal& b) const;
 	decimal operator *=(const decimal& b);
-	decimal operator --();
+	/* Haha ***k you `if (!value) { ... }` */
 	decimal operator !() const;
+	bool operator ==(const decimal& b) const;
+	bool operator !=(const decimal& b) const;
+	bool operator >(const decimal& b) const;
+	bool operator >=(const decimal& b) const;
+	bool operator <(const decimal& b) const;
+	bool operator <=(const decimal& b) const;
+	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
+	bool operator ==(const T& b) const;
 private:
-	vector<digit> digits{};
+	vector<digit> digits;
 	void remove_lz();
+	char relation_to(const decimal& b) const;
+	bool isZero() const;
+	bool isUnity() const;
 };
 
 }

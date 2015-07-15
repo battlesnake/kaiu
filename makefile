@@ -1,4 +1,4 @@
-tests := trigger event_loop promise
+tests := promise event_loop decimal task
 
 cxxextra ?= -g -O0 -DDEBUG
 
@@ -7,7 +7,7 @@ cxx := g++ -std=c++14
 
 cxxopts := -lpthread -Wall $(cxxextra)
 
-.PHONY: test clean default all list-deps stats
+.PHONY: test clean default all list-deps stats tests
 
 default: all
 
@@ -27,7 +27,7 @@ test/promise: promise.cpp spinlock.cpp
 
 test/task: task.cpp promise.cpp spinlock.cpp event_loop.cpp decimal.cpp
 
-test/%: %.cpp | test/
+test/%: %.cpp assertion.cpp | test/
 	$(cxx) $(cxxopts) -D$(<:%.cpp=test_%) $^ -o $@ 2>&1 | c++-color
 
 test: $(tests:%=test/%) | test/
@@ -40,3 +40,6 @@ test: $(tests:%=test/%) | test/
 
 stats:
 	wc -cl *.{cpp,tcc,h} | sort -h
+
+tests:
+	./run_test run: $(tests)

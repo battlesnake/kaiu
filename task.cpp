@@ -14,28 +14,33 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
+#include "assertion.h"
 #include "decimal.h"
 #include "promise.h"
 
 using namespace std;
+using namespace std::chrono;
 using namespace mark;
+
+const auto cores = thread::hardware_concurrency() > 5 ? thread::hardware_concurrency() : 5;
 
 ParallelEventLoop loop{ {
 	{ EventLoopPool::reactor, 1 },
 	{ EventLoopPool::interaction, 1 },
-	{ EventLoopPool::calculation, 10 }
+	{ EventLoopPool::calculation, cores }
 } };
 
-void* writeStrFunc(const string& message)
+string writeStrFunc(const string& message)
 {
 	cout << message << endl;
-	return nullptr;
+	return message;
 }
 
-void* writeNumFunc(const decimal& value)
+decimal writeNumFunc(const decimal& value)
 {
 	cout << "\t" << string(value) << endl;
-	return nullptr;
+	return value;
 }
 
 decimal factorial(const decimal& x)
@@ -43,11 +48,18 @@ decimal factorial(const decimal& x)
 	return !x;
 }
 
-auto setExpr(const string& expr, const string& suffix)
+decimal partial_factorial(const decimal& x, const decimal& offset, const decimal& step)
 {
-	return [expr, suffix] (decimal& answer) {
-		return promise::resolved(expr + " = " + string(answer) + suffix);
-	};
+	decimal r(1);
+	for (decimal i = offset; i <= x; i += step) {
+		r *= i;
+	}
+	return r;
+}
+
+decimal partial_factorial_tuple(const tuple<decimal, decimal, decimal>& range)
+{
+	return partial_factorial(get<0>(range), get<1>(range), get<2>(range));
 }
 
 auto writeStr = task::make_factory(loop, writeStrFunc,
@@ -59,7 +71,36 @@ auto writeNum = task::make_factory(loop, writeNumFunc,
 auto calcFactorial = task::make_factory(loop, factorial,
 	EventLoopPool::calculation, EventLoopPool::reactor);
 
-int main(int argc, char *argv[])
+auto calcPartialFactorial = task::make_factory(loop, partial_factorial_tuple,
+	EventLoopPool::calculation, EventLoopPool::reactor);
+
+Assertions assert({
+	{ nullptr, "Calculate multiple factorials simultaneously" },
+	{ "625", "625!" },
+	{ "1250", "1250!" },
+	{ "2500", "2500!" },
+	{ "5000", "5000!" },
+	{ "10000", "10000!" },
+	{ nullptr, "Calculate a single factorial in parallel" },
+	{ "10001", "10001!" },
+});
+
+const auto formatResult = [] (const time_point<system_clock>& start, const int& i) {
+	const function<string(const decimal&)> format_result =
+		[&start, i] (const decimal& result) {
+			const auto duration =
+				duration_cast<microseconds>(system_clock::now() - start);
+			const string note =
+				to_string(result.length()) + " digits \t" +
+				"+" + to_string(duration.count() / 1000) + "ms \t" +
+				to_string(duration.count() / result.length()) + "μs/digit";
+			assert.pass(to_string(i), note);
+			return to_string(i) + "! = " + note;
+		};
+	return task::make_factory<string, const decimal&>(loop, format_result, EventLoopPool::reactor);
+};
+
+void calculateMultipleFactorials()
 {
 	/*
 	 * Use decimal class to calculate big factorials then display their
@@ -73,23 +114,61 @@ int main(int argc, char *argv[])
 	condition_variable cv;
 	auto jobStart = [&jobs] { jobs++; };
 	auto jobEnd = [&jobs, &cv] { if (--jobs == 0) { cv.notify_one(); } };
-	auto getLength = [] (const decimal& d) {
-		return decimal(d.length());
-	};
-	cout << "STARTED" << endl << endl;
-	for (int i = 10000; i <= 20000; i+=1000) {
+	const auto start = system_clock::now();
+	/* Calculate multiple factorials */
+	for (int i = 625; i <= 10000; i *= 2) {
 		promise::resolved<int>(i)
 			->finally<int>(jobStart)
 			->then_p<decimal>(calcFactorial)
-			->then_i<decimal>(getLength)
-			->then_p<string>(setExpr(to_string(i) + "!", " digits long"))
-			->then_p<void*>(writeStr)
+			->then_p<string>(formatResult(start, i))
+			->then_p<string>(writeStr)
 			->finally(jobEnd);
 	}
 	unique_lock<mutex> lock(mx);
 	cv.wait(lock, [&jobs] { return jobs == 0; });
-	cout << endl << "ENDED" << endl << endl;
+}
+
+void calculateOneFactorial()
+{
+	/* Calculate one huge factorial */
+	const auto tasks = cores > 4 ? 4 : cores;
+	cout << "Using " << tasks << " threads" << endl;
+	atomic<bool> done{false};
+	mutex mx;
+	condition_variable cv;
+	const int param = 10001;
+	vector<Promise<decimal>> partials;
+	partials.reserve(tasks);
+	const auto start = system_clock::now();
+	for (remove_const<decltype(tasks)>::type i = 0; i < tasks; i++) {
+		auto subrange = make_tuple(param, i + 1, tasks);
+		partials.push_back(
+			promise::resolved(subrange)
+				->then_p<decimal>(calcPartialFactorial));
+	}
+	promise::combine(partials)
+		->then<decimal>([&start] (const vector<decimal>& results) {
+			decimal reductor{1};
+			for (const auto& value : results) {
+				reductor *= value;
+			}
+			return reductor;
+		})
+		->then_p<string>(formatResult(start, param))
+		->then_p<string>(writeStr)
+		->finally([&cv, &done] {
+			done = true;
+			cv.notify_one();
+		});
+	unique_lock<mutex> lock(mx);
+	cv.wait(lock, [&done] { return bool(done); });
+}
+
+int main(int argc, char *argv[])
+{
+	calculateMultipleFactorials();
+	calculateOneFactorial();
 	this_thread::sleep_for(100ms);
-	return 0;
+	return assert.print();
 }
 #endif

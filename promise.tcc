@@ -356,76 +356,158 @@ function<Promise<Result>(Args...)> make_factory(
 		};
 }
 
-/* Combine multiple promises into one promise */
+/*** Combine multiple promises into one promise ***/
 
+/* State object, shared between callbacks on all promises */
 template <typename NextResult>
-struct _combine_iterator {
-	Promise<NextResult>& nextPromise;
-	atomic_flag& state_lock;
-	bool& failed;
-	size_t& remaining;
-	NextResult& results;
+struct HeterogenousCombineState {
+	atomic_flag state_lock = ATOMIC_FLAG_INIT;
+	Promise<NextResult> nextPromise;
+	NextResult results;
+	size_t remaining = tuple_size<NextResult>::value;
+	bool failed = false;
 	template <typename Result, const size_t index>
-	void operator ()(Promise<Result>&& promise) {
-		promise.then(
-			[this]
-			(Result& result) {
-				bool done;
-				{
-					UserspaceSpinlock lock(state_lock);
-					if (failed) {
-						return;
-					}
-					get<index>(results) = result;
-					remaining--;
-					done = remaining == 0;
-				}
-				if (done) {
-					nextPromise.resolve(results);
-				}
-			},
-			[this] (exception_ptr error) {
-				bool first_fail;
-				{
-					UserspaceSpinlock lock(state_lock);
-					if (failed) {
-						return;
-					}
-					first_fail = !failed;
-					failed = true;
-				}
-				if (first_fail) {
-					nextPromise.reject(error);
-				}
-			});
+	void next(Result& result) {
+		UserspaceSpinlock lock(state_lock);
+		if (failed) {
+			return;
+		}
+		get<index>(results) = result;
+	};
+	void handler(exception_ptr error) {
+		{
+			UserspaceSpinlock lock(state_lock);
+			if (failed) {
+				return;
+			}
+			failed = true;
+		}
+		nextPromise->reject(error);
+	};
+	void finally() {
+		bool resolved;
+		{
+			UserspaceSpinlock lock(state_lock);
+			remaining--;
+			resolved = remaining == 0 && !failed;
+		}
+		if (resolved) {
+			nextPromise->resolve(move(results));
+		}
+	};
+};
+
+/* Functor which binds a single promise to shared state */
+template <typename NextResult>
+struct HeterogenousCombineIterator {
+	using State = HeterogenousCombineState<NextResult>;
+	shared_ptr<State> state;
+	template <typename PromiseType, const size_t index>
+	void operator ()(PromiseType& promise) {
+		using Result = typename decay<PromiseType>::type::result_type;
+		promise->then(
+			bind(&State::template next<Result, index>, state, placeholders::_1),
+			bind(&State::handler, state, placeholders::_1),
+			bind(&State::finally, state));
 	};
 };
 
 template <typename... Result>
-Promise<tuple<Result...>> combine(Promise<Result>&... promise)
+Promise<tuple<Result...>> combine(Promise<Result>&&... promise)
 {
 	using NextResult = tuple<Result...>;
 	/* Convert promise pack to tuple */
-	auto promises = make_tuple<Result...>(promise...);
-	/* Spinlock in case promises are completed in multiple threads */
-	atomic_flag state_lock = ATOMIC_FLAG_INIT;
-	/* Resulting promise */
-	Promise<NextResult> nextPromise;
-	/* Temporary storage of results */
-	NextResult results;
-	/* Number of incomplete promises */
-	int remaining = tuple_size<NextResult>::value;
-	/* Has a promise been rejected? */
-	bool failed = false;
+	auto promises = make_tuple(forward<Promise<Result>>(promise)...);
+	/* State */
+	auto state = make_shared<HeterogenousCombineState<NextResult>>();
 	/* Template metaprogramming "dynamically typed" functional fun */
 	tuple_each_with_index(promises,
-		_combine_iterator<NextResult>{
-			nextPromise,
-			state_lock,
-			failed,
-			remaining,
-			results
-		});
+		HeterogenousCombineIterator<NextResult>{state});
+	/* Return new promise */
+	return state->nextPromise;
+}
+
+/* State object, shared between callbacks on all promises */
+template <typename NextResult>
+struct HomogenousCombineState {
+	atomic_flag state_lock = ATOMIC_FLAG_INIT;
+	Promise<vector<NextResult>> nextPromise;
+	vector<NextResult> results;
+	size_t remaining;
+	bool failed = false;
+	HomogenousCombineState(const size_t count) :
+		results(count), remaining(count)
+			{ };
+	using Result = NextResult;
+	void next(const size_t index, Result& result) {
+		UserspaceSpinlock lock(state_lock);
+		if (failed) {
+			return;
+		}
+		results[index] = result;
+	};
+	void handler(exception_ptr error) {
+		{
+			UserspaceSpinlock lock(state_lock);
+			if (failed) {
+				return;
+			}
+			failed = true;
+		}
+		nextPromise->reject(error);
+	};
+	void finally() {
+		bool resolved;
+		{
+			UserspaceSpinlock lock(state_lock);
+			remaining--;
+			resolved = remaining == 0 && !failed;
+		}
+		if (resolved) {
+			nextPromise->resolve(move(results));
+		}
+	};
+};
+
+/* Binds a single promise to shared state */
+template <typename NextResult>
+struct HomogenousCombineIterator {
+	using State = HomogenousCombineState<NextResult>;
+	shared_ptr<State> state;
+	using Result = NextResult;
+	void operator ()(Promise<Result>& promise, const size_t index) {
+		promise->then(
+			bind(&State::next, state, index, placeholders::_1),
+			bind(&State::handler, state, placeholders::_1),
+			bind(&State::finally, state));
+	};
+};
+
+template <typename It, typename Result>
+Promise<vector<Result>> combine(It first, It last, const size_t size)
+{
+	auto state = make_shared<HomogenousCombineState<Result>>(size);
+	size_t index = 0;
+	for (It it = first; it != last; ++it, ++index) {
+		HomogenousCombineIterator<Result>{state}(*it, index);
+	}
+	/* Return new promise */
+	return state->nextPromise;
+}
+
+template <typename It, typename Result>
+Promise<vector<Result>> combine(It first, It last)
+{
+	return combine<It, Result>(first, last, distance(first, last));
+}
+
+template <typename List, typename Result>
+Promise<vector<Result>> combine(List promises)
+{
+	return combine<typename List::iterator, Result>(
+		promises.begin(),
+		promises.end(),
+		promises.size());
 }
 
 }

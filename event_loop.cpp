@@ -131,51 +131,54 @@ ParallelEventLoop::~ParallelEventLoop() throw()
 }
 
 #ifdef test_event_loop
-#include <stdio.h>
-#include <stdlib.h>
 #include <atomic>
 #include <thread>
 #include <chrono>
 #include <random>
+#include "assertion.h"
 
 using namespace mark;
 using namespace chrono_literals;
 
+Assertions assert({
+	{ nullptr, "Single-threaded event loop" },
+	{ "SORDER", "All events fire and they fire in order" },
+	{ nullptr, "Multi-threaded event loop" },
+	{ "MALL", "All events fired" }
+});
+
 void test_single()
 {
-	printf("Testing single-threaded event loop\n");
 	EventFunc taskA, taskB1, taskB2, taskC;
 	atomic<int> b_count{0};
+	string order = "";
 	taskA = [&] (EventLoop& loop) {
-		printf(" * Event A\n");
+		order += "A";
 		b_count = 2;
 		loop.push(taskB1);
 		loop.push(taskB2);
 	};
 	taskB1 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(200ms);
-		printf(" * Event B1\n");
+		order += "B1";
 		if (--b_count == 0) {
 			loop.push(taskC);
 		}
 	};
 	taskB2 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(100ms);
-		printf(" * Event B2\n");
+		order += "B2";
 		if (--b_count == 0) {
 			loop.push(taskC);
 		}
 	};
 	taskC = [&] (EventLoop& loop) {
-		printf(" * Event C\n");
+		order += "C";
 	};
 	SynchronousEventLoop loop(taskA);
-	printf("\n");
+	assert.expect(order, "AB1B2C", "SORDER");
 }
 
 void test_multi()
 {
-	printf("Testing multi-threaded event loop\n");
 	ParallelEventLoop loop({
 		{ EventLoopPool::reactor, 1 },
 		{ EventLoopPool::calculation, 2 },
@@ -188,61 +191,67 @@ void test_multi()
 	atomic<bool> done{false};
 	mutex done_mutex;
 	condition_variable done_cv;
+	/* Order check */
+	mutex order_lock;
+	string order = "";
+	auto order_push = [&order, &order_lock] (const string name) {
+		lock_guard<mutex> lock(order_lock);
+		order += name;
+	};
+	/* Tasks */
 	taskA = [&] (EventLoop& loop) {
-		printf(" * Event A\n");
+		order_push("A");
 		b_count = 2;
 		loop.push(EventLoopPool::calculation, taskB1);
 		loop.push(EventLoopPool::calculation, taskB2);
 	};
 	taskB1 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(200ms);
-		printf(" * Event B1\n");
+		this_thread::sleep_for(400ms);
+		order_push("B1");
 		if (--b_count == 0) {
 			loop.push(EventLoopPool::reactor, taskC);
 		}
 	};
 	taskB2 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(100ms);
-		printf(" * Event B2\n");
+		this_thread::sleep_for(10ms);
+		order_push("B2");
 		if (--b_count == 0) {
 			loop.push(EventLoopPool::reactor, taskC);
 		}
 	};
 	taskC = [&] (EventLoop& loop) {
-		printf(" * Event C\n");
+		order_push("C");
 		this_thread::sleep_for(100ms);
-		printf(" * Event D:");
 		for (int i = 0; i < d_rep; i++) {
 			loop.push(EventLoopPool::io_local, taskD);
 		}
 	};
 	taskD = [&] (EventLoop& loop) {
-		int idx = ++d_idx;
+		++d_idx;
 		random_device rd;
 		mt19937 gen(rd());
 		uniform_int_distribution<> d(50, 150);
 		this_thread::sleep_for(1ms * d(gen));
-		printf(" %d", idx);
+		order_push("D");
 		if (--d_count == 0) {
-			printf("\n");
 			loop.push(EventLoopPool::reactor, taskE);
 		}
 	};
 	taskE = [&] (EventLoop& loop) {
-		printf(" * Event E\n");
+		order_push("E");
 		done = true;
 		done_cv.notify_one();
 	};
 	loop.push(EventLoopPool::reactor, taskA);
 	unique_lock<mutex> lock(done_mutex);
 	done_cv.wait(lock, [&done] { return (bool) done; });
-	printf("\n");
+	assert.expect(order, "AB2B1C" + string(d_rep, 'D') + "E", "MALL");
 }
 
 int main(int argc, char *argv[])
 {
 	test_single();
 	test_multi();
-	return 0;
+	return assert.print();
 }
 #endif

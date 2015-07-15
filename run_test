@@ -20,7 +20,7 @@ function run {(
 	printf -- '\n\e[1mRun (%s)\e[0m\n' "${test}"
 	"${target}"
 	printf >&2 '\n\e[1mDONE\e[0m\n'
-	read LINE
+	sleep 1
 )}
 
 function debug {(
@@ -79,7 +79,7 @@ while (( $# )); do
 	# Action
 	case "$1" in
 	run:) action='run'
-		export cxxextra="-O2 -march=native -mtune=native -DNDEBUG"
+		export cxxextra="-O2 -march=native -mtune=native -DNDEBUG -w"
 		shift
 		continue
 		;;
@@ -100,9 +100,10 @@ while (( $# )); do
 	shift
 	declare target="test/${test}"
 	rm -f -- "${target}"
+	printf -- '\n\e[1mBuild (%s)\e[0m\n' "${test}"
 	export o_number
 	if make -B "${target}" && [ -e "${target}" ]; then
-		clear;
+		printf -- '\n\e[36mOutput size: %sk\e[0m\n' "$(printf -- '%s/1024\n' "$(stat -c %s "${target}")" | bc)"
 		case "${action}" in
 		run)
 			run "${test}" "${target}";;
@@ -112,6 +113,9 @@ while (( $# )); do
 			memcheck "${test}" "${target}";;
 		esac
 	else
+		printf -- '\n\e[31;1mBuild failed (%s)\e[0m\n' "${test}"
 		read LINE
 	fi
 done
+
+read LINE

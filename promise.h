@@ -4,6 +4,7 @@
 #include <memory>
 #include <cstddef>
 #include <tuple>
+#include <vector>
 #include <type_traits>
 #include "spinlock.h"
 
@@ -138,7 +139,7 @@ template <typename Result>
 class Promise : PromiseBase {
 	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
 public:
-	using type = Result;
+	using result_type = Result;
 	/* Promise */
 	Promise();
 	/* Resolved promise */
@@ -319,11 +320,11 @@ public:
 	/* "then_?" function aliases, overloaded as "then" */
 	template <typename NextResult,
 		typename = typename enable_if<is_promise<NextResult>::value>::type>
-	Promise<typename NextResult::type> then(
-			const ThenFunc<Promise<typename NextResult::type>> next,
-			const ExceptFunc<Promise<typename NextResult::type>> handler = nullptr,
+	Promise<typename NextResult::result_type> then(
+			const ThenFunc<Promise<typename NextResult::result_type>> next,
+			const ExceptFunc<Promise<typename NextResult::result_type>> handler = nullptr,
 			const FinallyFunc finally = nullptr)
-		{ return then_p<typename NextResult::type>(next, handler, finally); }
+		{ return then_p<typename NextResult::result_type>(next, handler, finally); }
 	template <typename NextResult,
 		typename = typename enable_if<!is_promise<NextResult>::value>::type>
 	Promise<NextResult> then(
@@ -391,13 +392,36 @@ template <typename Result, typename... Args>
 function<Promise<Result>(Args...)> make_factory(
 	function<Result(Args...)>& func);
 
+/*** Combinators ***/
+
 /*
  * Returns a Promise<tuple> that resolves to a tuple of results when all
  * given promises have resolved, or which rejects if any of them reject
  * (without waiting for the others to complete).
+ *
+ * Think of this as a map() operation over a possible heterogenous ordered set
+ * of promises, which transforms the set into a new ordered set containing the
+ * results of the promises.
  */
 template <typename... Result>
-Promise<tuple<Result...>> combine(Promise<Result>&... promise);
+Promise<tuple<Result...>> combine(Promise<Result>&&... promise);
+
+/*
+ * Takes an iterable of homogenous promises and returns a single promise that
+ * resolves to a vector containing the results of the given promises.
+ *
+ * Think of this as a map() operation over a heterogenous ordered set of
+ * promises, transforming the set into an ordered set of results.
+ */
+
+template <typename It, typename Result = typename It::value_type::result_type>
+Promise<vector<Result>> combine(It first, It last, const size_t size);
+
+template <typename It, typename Result = typename It::value_type::result_type>
+Promise<vector<Result>> combine(It first, It last);
+
+template <typename List, typename Result = typename List::value_type::result_type>
+Promise<vector<Result>> combine(List promises);
 
 }
 

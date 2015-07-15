@@ -16,8 +16,8 @@ Task<Result, Args...>::Task(
 }
 
 template <typename Result, typename... Args>
-Promise<Result>
-	Task<Result, Args...>::operator ()(EventLoop& loop, Args&&... args) const
+Promise<Result>Task<Result, Args...>::
+	operator ()(EventLoop& loop, Args&&... args) const
 {
 	if (action == nullptr) {
 		throw bad_function_call();
@@ -43,8 +43,8 @@ Promise<Result>
 }
 
 template <typename Result, typename... Args>
-function<Promise<Result>(Args...)>
-	Task<Result, Args...>::make_factory(EventLoop& loop) const
+function<Promise<Result>(Args...)> Task<Result, Args...>::
+	make_factory(EventLoop& loop) const
 {
 	return [this_task=*this, &loop] (Args&&... args) {
 		return this_task(loop, forward<Args>(args)...);
