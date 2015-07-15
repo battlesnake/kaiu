@@ -151,7 +151,7 @@ decimal decimal::operator *(const decimal& value) const
 	if (a.isZero()) {
 		return decimal(0);
 	} else if (a.isUnity()) {
-		return value;
+		return b;
 	}
 	decimal c;
 	const auto as = a.length();
