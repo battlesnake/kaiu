@@ -1,4 +1,4 @@
-tests := promise event_loop decimal task
+tests := $(patsubst test_%.cpp, %, $(wildcard test_*.cpp))
 
 cxxextra ?= -g -O0 -DDEBUG
 
@@ -27,8 +27,8 @@ test/promise: promise.cpp spinlock.cpp
 
 test/task: task.cpp promise.cpp spinlock.cpp event_loop.cpp decimal.cpp
 
-test/%: %.cpp assertion.cpp | test/
-	$(cxx) $(cxxopts) -D$(<:%.cpp=test_%) $^ -o $@ 2>&1 | c++-color
+test/%: test_%.cpp %.cpp assertion.cpp | test/
+	$(cxx) $(cxxopts) $^ -o $@ 2>&1 | c++-color
 
 test: $(tests:%=test/%) | test/
 	@echo ""
@@ -39,7 +39,12 @@ test: $(tests:%=test/%) | test/
 	done
 
 stats:
-	wc -cl *.{cpp,tcc,h} | sort -h
+	@( \
+		printf -- "Lines\tChars\tUnit name\n"; \
+		for root in $$(ls *.{cpp,tcc,h} | sed -e 's/\..*$$//g' | sort -u); do \
+			printf -- "%s\t%s\t%s\n" $$(cat $${root}.* | wc -cl) "$${root}"; \
+		done | sort -rnt$$'\t'; \
+	) | column -t -o' | ' -s$$'\t'
 
 tests:
 	./run_test run: $(tests)

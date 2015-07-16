@@ -1,8 +1,16 @@
+#include <stdexcept>
 #include "event_loop.h"
 
 namespace mark {
 
 using namespace std;
+
+thread_local EventLoopPool this_pool = EventLoopPool::unknown;
+
+EventLoopPool current_pool()
+{
+	return this_pool;
+}
 
 /*** EventLoop ***/
 
@@ -32,7 +40,7 @@ void SynchronousEventLoop::push(const EventLoopPool pool, const EventFunc& event
 	events.emplace(new EventFunc(event));
 }
 
-Event SynchronousEventLoop::next(const EventLoopPool pool)
+auto SynchronousEventLoop::next(const EventLoopPool pool) -> Event
 {
 	auto event = move(events.front());
 	events.pop();
@@ -43,12 +51,19 @@ Event SynchronousEventLoop::next(const EventLoopPool pool)
 
 ParallelEventLoop::ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools) : EventLoop()
 {
+	/*
+	 * Include this thread in count of threads to initialize.  Prevents the
+	 * thread_started function from returning prematurely if worker threads
+	 * somehow start really quickly, by requiring them to wait for this thread
+	 * to also call thread_started.
+	 */
 	threads_starting = 1;
+	/* Iterate over requested thread pools, creating threads */
 	for (const auto& pair : pools) {
 		const auto pool_type = pair.first;
 		const auto pool_size = pair.second;
 		if (pool_size == 0) {
-			throw invalid_argument("Thread count specified is zero.  Use SynchronousEventLoop for non-threaded event loop.");
+			throw invalid_argument("Thread count specified for a pool is zero.  Use SynchronousEventLoop for non-threaded event loop.");
 			return;
 		}
 		queues.emplace(piecewise_construct, forward_as_tuple(pool_type), forward_as_tuple());
@@ -57,12 +72,16 @@ ParallelEventLoop::ParallelEventLoop(const unordered_map<EventLoopPool, int, Eve
 			threads.emplace_back(bind(&ParallelEventLoop::do_threaded_loop, this, pool_type));
 		}
 	}
-	/* Wait for all threads to start */
+	/* Mark this thread as started, Wait for all threads to start */
 	thread_started();
 }
 
 void ParallelEventLoop::thread_started()
 {
+	/*
+	 * Marks this thread as having started, waits until all others have started
+	 * before returning
+	 */
 	unique_lock<mutex> lock(threads_started_mutex);
 	if (--threads_starting == 0) {
 		threads_started_cv.notify_all();
@@ -73,14 +92,26 @@ void ParallelEventLoop::thread_started()
 
 void ParallelEventLoop::do_threaded_loop(const EventLoopPool pool)
 {
+	this_pool = pool;
+	/*
+	 * Mark this thread as "working".  This will be undone temporarily by any
+	 * blocking wait operation on the event queue, via ConcurrentQueue<T>::pop.
+	 */
+	WorkTracker work_guard(*this, +1);
 	thread_started();
-	Event event;
-	while ((event = next(pool)) != nullptr) {
+	while (Event event = next(pool)) {
 		try {
 			(*event)(*this);
 		} catch (exception& e) {
 			lock_guard<mutex> lock(exceptions_mutex);
 			exceptions.push(move(e));
+			/*
+			 * We need a better name for this condition_variable.
+			 *
+			 * Notify any ongoing join() operation that there is an exception to
+			 * handle.
+			 */
+			threads_working_cv.notify_all();
 		}
 	}
 }
@@ -91,13 +122,18 @@ void ParallelEventLoop::push(const EventLoopPool pool, const EventFunc& event)
 	queue.emplace(new EventFunc(event));
 }
 
-Event ParallelEventLoop::next(const EventLoopPool pool)
+auto ParallelEventLoop::next(const EventLoopPool pool) -> Event
 {
 	ConcurrentQueue<Event>& queue = queues.at(pool);
 	Event event;
-	if (queue.pop(event)) {
+	/*
+	 * If pop blocks, the threads_working count will be decremented during the
+	 * block.
+	 */
+	if (queue.pop<WorkTracker>(event, *this, -1)) {
 		return event;
 	} else {
+		/* No events available and queue is in non-blocking mode */
 		return nullptr;
 	}
 }
@@ -114,144 +150,75 @@ void ParallelEventLoop::process_exceptions(function<void(exception&)> handler)
 			e = move(exceptions.front());
 			exceptions.pop();
 		}
-		handler(e);
+		if (handler) {
+			handler(e);
+		}
 	}
 }
 
-ParallelEventLoop::~ParallelEventLoop() throw()
+void ParallelEventLoop::join(function<void(exception&)> handler)
 {
-	for (auto& pair : queues) {
-		pair.second.stop();
+	if (current_pool() != EventLoopPool::unknown) {
+		throw logic_error("join called from worker thread");
 	}
+	unique_lock<mutex> lock(threads_working_mutex);
+	/*
+	 * We need a better name for the condition variable.  It is also triggered
+	 * when a worker thread has queued an exception, hence why this loop below
+	 * actually works.
+	 */
+	threads_working_cv.wait(lock, [handler, this] {
+		process_exceptions(handler);
+		return threads_working == 0;
+	});
+}
+
+void ParallelEventLoop::set_queue_nonblocking_mode(bool nonblocking)
+{
+	/*
+	 * Event loops in worker threads will terminate if in nonblocking mode and
+	 * there are no events to process.
+	 */
+	for (auto& pair : queues) {
+		pair.second.set_nonblocking(nonblocking);
+	}
+}
+
+ParallelEventLoop::~ParallelEventLoop()
+{
+	/* Wait for all workers to finish working */
+	join(nullptr);
+	/*
+	 * Put queues into non-blocking mode so that they terminate when no events
+	 * are left to be processed (there should be no events left since we just
+	 * came back from a join().
+	 */
+	set_queue_nonblocking_mode(true);
+	/* Wait for all workers to terminate */
 	for (auto& thread : threads) {
 		thread.join();
 	}
 }
 
-}
+/*** ParallelEventLoop::WorkTracker ***/
 
-#ifdef test_event_loop
-#include <atomic>
-#include <thread>
-#include <chrono>
-#include <random>
-#include "assertion.h"
-
-using namespace mark;
-using namespace chrono_literals;
-
-Assertions assert({
-	{ nullptr, "Single-threaded event loop" },
-	{ "SORDER", "All events fire and they fire in order" },
-	{ nullptr, "Multi-threaded event loop" },
-	{ "MALL", "All events fired" }
-});
-
-void test_single()
+ParallelEventLoop::WorkTracker::
+	WorkTracker(ParallelEventLoop& loop, const int delta) :
+		loop(loop), delta(delta)
 {
-	EventFunc taskA, taskB1, taskB2, taskC;
-	atomic<int> b_count{0};
-	string order = "";
-	taskA = [&] (EventLoop& loop) {
-		order += "A";
-		b_count = 2;
-		loop.push(taskB1);
-		loop.push(taskB2);
-	};
-	taskB1 = [&] (EventLoop& loop) {
-		order += "B1";
-		if (--b_count == 0) {
-			loop.push(taskC);
-		}
-	};
-	taskB2 = [&] (EventLoop& loop) {
-		order += "B2";
-		if (--b_count == 0) {
-			loop.push(taskC);
-		}
-	};
-	taskC = [&] (EventLoop& loop) {
-		order += "C";
-	};
-	SynchronousEventLoop loop(taskA);
-	assert.expect(order, "AB1B2C", "SORDER");
+	loop.threads_working += delta;
+	notify();
 }
 
-void test_multi()
+ParallelEventLoop::WorkTracker::~WorkTracker()
 {
-	ParallelEventLoop loop({
-		{ EventLoopPool::reactor, 1 },
-		{ EventLoopPool::calculation, 2 },
-		{ EventLoopPool::io_local, 10 }
-	});
-	EventFunc taskA, taskB1, taskB2, taskC, taskD, taskE;
-	const int d_rep = 30;
-	atomic<int> b_count{0};
-	atomic<int> d_idx{0}, d_count{d_rep};
-	atomic<bool> done{false};
-	mutex done_mutex;
-	condition_variable done_cv;
-	/* Order check */
-	mutex order_lock;
-	string order = "";
-	auto order_push = [&order, &order_lock] (const string name) {
-		lock_guard<mutex> lock(order_lock);
-		order += name;
-	};
-	/* Tasks */
-	taskA = [&] (EventLoop& loop) {
-		order_push("A");
-		b_count = 2;
-		loop.push(EventLoopPool::calculation, taskB1);
-		loop.push(EventLoopPool::calculation, taskB2);
-	};
-	taskB1 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(400ms);
-		order_push("B1");
-		if (--b_count == 0) {
-			loop.push(EventLoopPool::reactor, taskC);
-		}
-	};
-	taskB2 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(10ms);
-		order_push("B2");
-		if (--b_count == 0) {
-			loop.push(EventLoopPool::reactor, taskC);
-		}
-	};
-	taskC = [&] (EventLoop& loop) {
-		order_push("C");
-		this_thread::sleep_for(100ms);
-		for (int i = 0; i < d_rep; i++) {
-			loop.push(EventLoopPool::io_local, taskD);
-		}
-	};
-	taskD = [&] (EventLoop& loop) {
-		++d_idx;
-		random_device rd;
-		mt19937 gen(rd());
-		uniform_int_distribution<> d(50, 150);
-		this_thread::sleep_for(1ms * d(gen));
-		order_push("D");
-		if (--d_count == 0) {
-			loop.push(EventLoopPool::reactor, taskE);
-		}
-	};
-	taskE = [&] (EventLoop& loop) {
-		order_push("E");
-		done = true;
-		done_cv.notify_one();
-	};
-	loop.push(EventLoopPool::reactor, taskA);
-	unique_lock<mutex> lock(done_mutex);
-	done_cv.wait(lock, [&done] { return (bool) done; });
-	assert.expect(order, "AB2B1C" + string(d_rep, 'D') + "E", "MALL");
+	loop.threads_working -= delta;
+	notify();
 }
 
-int main(int argc, char *argv[])
+void ParallelEventLoop::WorkTracker::notify() const
 {
-	test_single();
-	test_multi();
-	return assert.print();
+	loop.threads_working_cv.notify_all();
 }
-#endif
+
+}

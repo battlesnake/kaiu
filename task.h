@@ -11,23 +11,18 @@ using namespace std;
 class EventLoop;
 
 /*
- * A task is a promise factory.  When invoked via the function operator, the
- * task's action is submitted to the specified pool in the passed event loop.
+ * A Task<Result, Args...> defines an asynchronous process which transforms
+ * Args... to Result in a specified thread-pool.  The callbacks executed upon
+ * completion (or rejection) of the task can be executed immediately after in
+ * the same thread, or can be executed in some other thread-pool.  Specification
+ * of the process, action thread-pool, and reaction thread-pool is done by the
+ * Task<Result, Args...> instance at construction.
  *
- * The action runs in the thread pool and may optionally invoke other tasks
- * (which could be run in other thread pools or on other event loops).  The
- * promise returned by the action is forwarded to the promise returned by the
- * task's function operator.
+ * The function operator is used to execute the task on a given message loop
+ * with a given set of arguments.  The make_factory method can be used to curry
+ * the function operator, binding to a particular message loop.  This results in
+ * a Promise<Result> factory which takes Args... as parameters.
  *
- * If react_in was not specified or was 'invalid' then any callbacks attached
- * to the returned promise are executed in the same thread that the task was
- * executed in.
- *
- * If react_in was specified and was not 'invalid', callbacks on the returned
- * promise are executed in the react_in thread pool.
- *
- * make_factory can be used to create a promise factory that takes Args... as
- * parameters, launches the task on a pre-set event loop, and returns a promise.
  * Note that:
  *     make_factory(loop)(args...)
  * is functionally equivalent to:
@@ -43,10 +38,16 @@ public:
 		const Action& action,
 		const EventLoopPool pool,
 		const EventLoopPool react_in = EventLoopPool::invalid);
+	Task(
+		Result (&action)(EventLoop&, Args...),
+		const EventLoopPool pool,
+		const EventLoopPool react_in = EventLoopPool::invalid);
 	/* Invoke task */
 	Promise<Result> operator ()(EventLoop& loop, Args&&... args) const;
 	/* Returns promise factory that encapsulates this task */
-	function<Promise<Result>(Args...)> make_factory(EventLoop& loop) const;
+	template <typename... Binding>
+	function<Promise<Result>(Args...)>
+		make_factory(EventLoop& loop, Binding&&... binding) const;
 private:
 	const EventLoopPool pool;
 	const Action action;
