@@ -25,7 +25,9 @@ test/:
 
 test/promise: promise.cpp spinlock.cpp
 
-test/task: task.cpp promise.cpp spinlock.cpp event_loop.cpp decimal.cpp
+test/task: decimal.cpp promise.cpp spinlock.cpp event_loop.cpp starter_pistol.cpp
+
+test/event_loop: starter_pistol.cpp
 
 test/%: test_%.cpp %.cpp assertion.cpp | test/
 	$(cxx) $(cxxopts) $^ -o $@ 2>&1 | c++-color

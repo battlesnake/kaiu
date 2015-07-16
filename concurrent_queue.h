@@ -13,37 +13,40 @@ class ConcurrentQueue {
 public:
 	ConcurrentQueue(const ConcurrentQueue&) = delete;
 	ConcurrentQueue& operator=(const ConcurrentQueue&) = delete;
-	ConcurrentQueue();
+	ConcurrentQueue() = delete;
+	ConcurrentQueue(mutex& queue_mutex, bool nowaiting = false);
 	/* Append event to end of queue */
 	void push(const T& item);
 	void push(const T&& item);
 	template <typename... Args>
 	void emplace(Args&&... args);
-	/* Remove event from front of queue.  Wait if no events are in the queue. */
+	/*
+	 * Remove event from front of queue
+	 * 
+	 * If there are no elements in the queue then either:
+	 *   wait until there are if we're not in no-waiting mode
+	 *   return false without waiting if we are in no-waiting mode
+	 */
 	bool pop(T& out);
 	/*
 	 * WaitGuard is instantiated when we start waiting for events, and destroyed
-	 * when we stop waiting.  It is not instantiated if an event is already
-	 * available, as no wait is required.  It is not instantiated if the queue
-	 * is in non-blocking mode.
+	 * when we stop waiting.  It is not instantiated if events are in the queue,
+	 * as no wait is required.  It is not instantiated if the queue is in
+	 * no-waiting mode.
 	 */
 	template <typename WaitGuard, typename... GuardParam>
 	bool pop(T& out, GuardParam&&... guard_param);
-	/*
-	 * In non-blocking mode, pop() does not do blocking waits.  Instead, it
-	 * returns false immediately if there are no messages in the queue.  This is
-	 * contrary to the usual blocking mode where pop() always returns true,
-	 * waiting if necessary for a message to be added to the queue.
-	 *
-	 * The WaitGuard is never instantiated in non-blocking mode.
-	 */
-	void set_nonblocking(bool nonblocking = true);
-	bool is_nonblocking() const;
+	/* Set/unset no-waiting mode */
+	void set_nowaiting(bool value = true);
+	bool is_nowaiting() const;
+	/* Test if queue is empty */
+	bool isEmpty();
+	bool isEmpty(const unique_lock<mutex>& lock) const;
 private:
-	atomic<bool> nonblocking{false};
-	condition_variable stop_waiting;
+	atomic<bool> nowaiting{false};
+	condition_variable unblock;
 	queue<T> events;
-	mutex queue_mutex;
+	mutex& queue_mutex;
 	void notify();
 };
 

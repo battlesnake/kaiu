@@ -1,7 +1,6 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
-#include <random>
 #include <string>
 #include "assertion.h"
 #include "event_loop.h"
@@ -56,7 +55,7 @@ void test_multi()
 	EventFunc taskA, taskB1, taskB2, taskC, taskD, taskE;
 	const int d_rep = 30;
 	atomic<int> b_count{0};
-	atomic<int> d_idx{0}, d_count{d_rep};
+	atomic<int> d_count{d_rep};
 	/* Order check */
 	mutex order_lock;
 	string order = "";
@@ -72,14 +71,13 @@ void test_multi()
 		loop.push(EventLoopPool::calculation, taskB2);
 	};
 	taskB1 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(400ms);
+		this_thread::sleep_for(20ms);
 		order_push("B1");
 		if (--b_count == 0) {
 			loop.push(EventLoopPool::reactor, taskC);
 		}
 	};
 	taskB2 = [&] (EventLoop& loop) {
-		this_thread::sleep_for(10ms);
 		order_push("B2");
 		if (--b_count == 0) {
 			loop.push(EventLoopPool::reactor, taskC);
@@ -87,17 +85,11 @@ void test_multi()
 	};
 	taskC = [&] (EventLoop& loop) {
 		order_push("C");
-		this_thread::sleep_for(100ms);
 		for (int i = 0; i < d_rep; i++) {
 			loop.push(EventLoopPool::io_local, taskD);
 		}
 	};
 	taskD = [&] (EventLoop& loop) {
-		++d_idx;
-		random_device rd;
-		mt19937 gen(rd());
-		uniform_int_distribution<> d(50, 150);
-		this_thread::sleep_for(1ms * d(gen));
 		order_push("D");
 		if (--d_count == 0) {
 			loop.push(EventLoopPool::reactor, taskE);

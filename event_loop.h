@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <unordered_map>
 #include "concurrent_queue.h"
+#include "starter_pistol.h"
+#include "scoped_counter.h"
 
 namespace mark {
 
@@ -68,18 +70,17 @@ public:
 	/*
 	 * Submit events / tasks using << operator, as used with streams.
 	 */
-	template <typename T> EventLoop& operator <<(T arg) {
-		push(arg);
-		return *this;
-	};
+	template <typename T>
+		EventLoop& operator <<(T arg)
+			{ push(arg); return *this; };
 protected:
 	using Event = unique_ptr<EventFunc>;
 	EventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
-	~EventLoop() = default;
+	virtual ~EventLoop() = default;
 	virtual Event next(const EventLoopPool pool) = 0;
 	Event next() { return next(defaultPool); };
 private:
-	EventLoopPool defaultPool;
+	EventLoopPool defaultPool{EventLoopPool::reactor};
 };
 
 /*
@@ -113,9 +114,9 @@ public:
 	ParallelEventLoop& operator =(const ParallelEventLoop &) = delete;
 	ParallelEventLoop(const ParallelEventLoop &) = delete;
 	ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools);
-	~ParallelEventLoop();
+	virtual ~ParallelEventLoop() override; 
 	/* If handler is nullptr, the exceptions are discarded */
-	void process_exceptions(function<void(exception&)> handler = nullptr);
+	void process_exceptions(function<void(exception_ptr&)> handler = nullptr);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
 	/*
 	 * Returns when all threads are idle and no events are pending.
@@ -123,45 +124,30 @@ public:
 	 * Calls handler on all queued exceptions and on any that are queued during
 	 * the wait.
 	 */
-	void join(function<void(exception&)> handler = nullptr);
+	void join(function<void(exception_ptr&)> handler = nullptr);
 protected:
 	virtual Event next(const EventLoopPool pool) override;
 private:
-	/* Track starting threads */
-	atomic<int> threads_starting{0};
-	condition_variable threads_started_cv;
-	mutex threads_started_mutex;
-	void thread_started();
+	/* Cause all threads to start at the same time */
+	unique_ptr<StarterPistol> starter_pistol;
 	/* Threads */
 	vector<thread> threads;
 	/* Event queues (one per pool) */
 	unordered_map<EventLoopPool, ConcurrentQueue<Event>, EventLoopPoolHash> queues;
-	void set_queue_nonblocking_mode(bool nonblocking);
+	/* Mutex shared by all queues */
+	mutex queue_mutex;
 	/* Exception queue */
-	queue<exception> exceptions;
 	mutex exceptions_mutex;
+	queue<exception_ptr> exceptions;
 	/* Thread entry point */
 	void do_threaded_loop(const EventLoopPool pool);
-	/* Count of threads that are doing stuff */
-	atomic<int> threads_working{0};
-	condition_variable threads_working_cv;
-	mutex threads_working_mutex;
 	/*
-	 * Used to track number of threads that are busy, is passed as a WaitGuard
-	 * to ConcurrentQueue::pop to track idling.  All hail RAII.
+	 * Count of threads that are not idle (idle = waiting for events)
+	 *
+	 * Triggers a condition variable whenever the number if idle threads
+	 * changes.  Is als triggered by this class when an exception is queued.
 	 */
-	class WorkTracker {
-	public:
-		WorkTracker() = delete;
-		WorkTracker(const WorkTracker&) = delete;
-		WorkTracker(WorkTracker&&) = delete;
-		WorkTracker(ParallelEventLoop& loop, const int delta);
-		~WorkTracker();
-	private:
-		ParallelEventLoop& loop;
-		const int delta;
-		void notify() const;
-	};
+	ScopedCounter<int> threads_not_idle_counter;
 };
 
 }
