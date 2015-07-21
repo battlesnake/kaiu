@@ -23,9 +23,9 @@ list-deps:
 test/:
 	mkdir -p $@
 
-test/promise: promise.cpp spinlock.cpp
+test/promise: promise.cpp
 
-test/task: decimal.cpp promise.cpp spinlock.cpp event_loop.cpp starter_pistol.cpp
+test/task: decimal.cpp promise.cpp event_loop.cpp starter_pistol.cpp
 
 test/event_loop: starter_pistol.cpp
 

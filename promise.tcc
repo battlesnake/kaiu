@@ -1,7 +1,7 @@
 #define promise_tcc
 #include <exception>
 #include <stdexcept>
-#include "spinlock.h"
+#include <mutex>
 #include "tuple_iteration.h"
 #include "promise.h"
 
@@ -21,7 +21,7 @@ template <typename Result>
 void PromiseInternal<Result>::resolve(Result const& result)
 {
 	ensure_is_still_pending();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_still_pending();
 	this->result = result;
 	resolved();
@@ -31,7 +31,7 @@ template <typename Result>
 void PromiseInternal<Result>::forward_to(Promise<Result> next)
 {
 	ensure_is_unbound();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_unbound();
 	on_resolve = [next, this] { next->resolve(result); };
 	on_reject = [next, this] { next->reject(error); };
@@ -46,7 +46,7 @@ Promise<NextResult> PromiseInternal<Result>::then(
 	const Finally finally_func)
 {
 	ensure_is_unbound();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_unbound();
 	NextPromise promise;
 	ThenFunc<NextPromise> next(then_func);
@@ -120,7 +120,7 @@ Promise<NextResult> PromiseInternal<Result>::then(
 	 * promises, but that is stupidly inefficient
 	 */
 	ensure_is_unbound();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_unbound();
 	Promise<NextResult> promise;
 	ThenFunc<NextResult> next(then_func);
@@ -194,7 +194,7 @@ void PromiseInternal<Result>::then(
 	 * that seems inefficient
 	 */
 	ensure_is_unbound();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_unbound();
 	ThenFunc<NextResult> next(then_func);
 	ExceptFunc<NextResult> handler(except_func);
@@ -359,14 +359,14 @@ function<Promise<Result>(Args...)> factory(
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
 struct HeterogenousCombineState {
-	atomic_flag state_lock = ATOMIC_FLAG_INIT;
+	mutex state_lock;
 	Promise<NextResult> nextPromise;
 	NextResult results;
 	size_t remaining = tuple_size<NextResult>::value;
 	bool failed = false;
 	template <typename Result, const size_t index>
 	void next(Result& result) {
-		UserspaceSpinlock lock(state_lock);
+		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
@@ -374,7 +374,7 @@ struct HeterogenousCombineState {
 	};
 	void handler(exception_ptr error) {
 		{
-			UserspaceSpinlock lock(state_lock);
+			lock_guard<mutex> lock(state_lock);
 			if (failed) {
 				return;
 			}
@@ -385,7 +385,7 @@ struct HeterogenousCombineState {
 	void finally() {
 		bool resolved;
 		{
-			UserspaceSpinlock lock(state_lock);
+			lock_guard<mutex> lock(state_lock);
 			remaining--;
 			resolved = remaining == 0 && !failed;
 		}
@@ -428,7 +428,7 @@ Promise<tuple<Result...>> combine(Promise<Result>&&... promise)
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
 struct HomogenousCombineState {
-	atomic_flag state_lock = ATOMIC_FLAG_INIT;
+	mutex state_lock;
 	Promise<vector<NextResult>> nextPromise;
 	vector<NextResult> results;
 	size_t remaining;
@@ -438,7 +438,7 @@ struct HomogenousCombineState {
 			{ };
 	using Result = NextResult;
 	void next(const size_t index, Result& result) {
-		UserspaceSpinlock lock(state_lock);
+		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
@@ -446,7 +446,7 @@ struct HomogenousCombineState {
 	};
 	void handler(exception_ptr error) {
 		{
-			UserspaceSpinlock lock(state_lock);
+			lock_guard<mutex> lock(state_lock);
 			if (failed) {
 				return;
 			}
@@ -457,7 +457,7 @@ struct HomogenousCombineState {
 	void finally() {
 		bool resolved;
 		{
-			UserspaceSpinlock lock(state_lock);
+			lock_guard<mutex> lock(state_lock);
 			remaining--;
 			resolved = remaining == 0 && !failed;
 		}

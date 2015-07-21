@@ -1,12 +1,12 @@
 #pragma once
 #include <functional>
 #include <atomic>
+#include <mutex>
 #include <memory>
 #include <cstddef>
 #include <tuple>
 #include <vector>
 #include <type_traits>
-#include "spinlock.h"
 
 namespace mark {
 
@@ -232,20 +232,12 @@ protected:
 	/* Called on resolve/reject after callbacks */
 	void completed_and_called();
 	/*
-	 * Used for fast userspace mutex (spinlock).
-	 *
 	 * Locked when:
 	 *   - binding callbacks
 	 *   - storing result/error
 	 *   - calling callbacks
-	 *
-	 * Locking this should never take long in a well-formed program, as the only
-	 * operation which holds this promise for a long time is calling callbacks.
-	 * Calling callbacks can only happen when the other two locking operations
-	 * have already been called, and they can only each be called once per
-	 * instance.  This is why I chose a userspace spinlock over std::mutex.
 	 */
-	atomic_flag state_lock{ATOMIC_FLAG_INIT};
+	mutex state_lock;
 	/* Sanity checks */
 	void ensure_is_still_pending() const;
 	void ensure_is_unbound() const;

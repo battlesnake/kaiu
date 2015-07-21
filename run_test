@@ -79,7 +79,7 @@ while (( $# )); do
 	# Action
 	case "$1" in
 	run:) action='run'
-		export cxxextra="-O2 -march=native -mtune=native -DNDEBUG -w"
+		export cxxextra="-O3 -march=native -mtune=native -DNDEBUG -w"
 		shift
 		continue
 		;;

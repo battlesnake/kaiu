@@ -12,7 +12,7 @@ PromiseInternalBase::PromiseInternalBase()
 
 PromiseInternalBase::~PromiseInternalBase() //noexcept(false)
 {
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	if (state == promise_state::completed) {
 		return;
 	}
@@ -27,14 +27,14 @@ PromiseInternalBase::~PromiseInternalBase() //noexcept(false)
 PromiseInternalBase::PromiseInternalBase(const nullptr_t dummy, exception_ptr error) :
 	error(error)
 {
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	rejected();
 }
 
 PromiseInternalBase::PromiseInternalBase(const nullptr_t dummy, const string& error) :
 	error(make_exception_ptr(runtime_error(error)))
 {
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	rejected();
 }
 
@@ -58,7 +58,7 @@ void PromiseInternalBase::assigned_callbacks()
 void PromiseInternalBase::reject(exception_ptr error)
 {
 	ensure_is_still_pending();
-	UserspaceSpinlock lock(state_lock);
+	lock_guard<mutex> lock(state_lock);
 	ensure_is_still_pending();
 	this->error = error;
 	rejected();
