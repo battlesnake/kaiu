@@ -42,7 +42,7 @@ void flow_test() {
 	condition_variable cv;
 	volatile bool done = false;
 	promise::resolved(42)
-		->then<double>(
+		->then(
 			[] (auto result) {
 				assert.expect(result, 42, "IRPR");
 				return 21.0;
@@ -51,7 +51,7 @@ void flow_test() {
 				assert.fail("IRPR");
 				return 0;
 			})
-		->then<int>(
+		->then(
 			[] (auto result) {
 				assert.expect(result, 21.0, "IRCPR");
 				return 69;
@@ -60,11 +60,11 @@ void flow_test() {
 				assert.fail("IRCPR");
 				return -1;
 			})
-		->finally<int>(
+		->finally(
 			[] {
 				return;
 			})
-		->then<int>(
+		->then(
 			[] (auto result) {
 				assert.expect(result, 69, "RVPF");
 				throw runtime_error("oops");
@@ -75,11 +75,11 @@ void flow_test() {
 				throw runtime_error("oops");
 				return -1;
 			})
-		->finally<int>(
+		->finally(
 			[] {
 				return;
 			})
-		->then<void *>(
+		->then(
 			[] (auto result) {
 				assert.fail("JVPF");
 				return nullptr;
@@ -92,13 +92,13 @@ void flow_test() {
 				}
 				return nullptr;
 			})
-		->then<Promise<string>>(
+		->then(
 			[] (auto result) {
 				Promise<string> promise;
 				do_async_nonblock([promise] { promise->resolve("hi"); });
 				return promise;
 			})
-		->then<Promise<int>>(
+		->then(
 			[] (auto result) {
 				assert.expect(result, "hi", "ARPR");
 				Promise<int> promise;
@@ -109,12 +109,12 @@ void flow_test() {
 				assert.fail("ARPR");
 				return Promise<int>(-1);
 			})
-		->then<int>(
+		->then(
 			[] (auto result) {
 				assert.fail("AJPJ");
 				return result;
 			})
-		->except<int>([] (auto error) {
+		->except([] (auto error) {
 			assert.pass("AJPJ");
 			try {
 				rethrow_exception(error);
@@ -123,7 +123,7 @@ void flow_test() {
 			}
 			return 0;
 		})
-		->then<bool>(
+		->then(
 			[] (auto result) {
 				assert.expect(result, int(), "HJRPDV");
 				return true;
@@ -132,12 +132,12 @@ void flow_test() {
 				assert.fail("HJRPDV");
 				return true;
 			})
-		->finally<bool>(
+		->finally(
 			[] {
 				assert.pass("FC");
 				throw runtime_error("bye");
 			})
-		->then<char>(
+		->then(
 			[] (auto result) {
 				assert.fail("EFJP");
 				return 0;

@@ -39,16 +39,19 @@ void PromiseInternal<Result>::forward_to(Promise<Result> next)
 }
 
 template <typename Result>
-template <typename NextResult>
-Promise<NextResult> PromiseInternal<Result>::then_p(
-	const ThenFunc<Promise<NextResult>> next,
-	const ExceptFunc<Promise<NextResult>> handler,
-	const FinallyFunc finally)
+template <typename Then, typename NextPromise, typename NextResult, typename Except, typename Finally, typename>
+Promise<NextResult> PromiseInternal<Result>::then(
+	const Then then_func,
+	const Except except_func,
+	const Finally finally_func)
 {
 	ensure_is_unbound();
 	UserspaceSpinlock lock(state_lock);
 	ensure_is_unbound();
-	Promise<NextResult> promise;
+	NextPromise promise;
+	ThenFunc<NextPromise> next(then_func);
+	ExceptFunc<NextPromise> handler(except_func);
+	FinallyFunc finally(finally_func);
 	/*
 	 * Finally is called at the end of both branches (resolve and reject).
 	 *
@@ -106,11 +109,11 @@ Promise<NextResult> PromiseInternal<Result>::then_p(
 }
 
 template <typename Result>
-template <typename NextResult>
-Promise<NextResult> PromiseInternal<Result>::then_i(
-	const ThenFunc<NextResult> next,
-	const ExceptFunc<NextResult> handler,
-	const FinallyFunc finally)
+template <typename Then, typename NextResult, typename Except, typename Finally, typename>
+Promise<NextResult> PromiseInternal<Result>::then(
+	const Then then_func,
+	const Except except_func,
+	const Finally finally_func)
 {
 	/*
 	 * Used to be implemented by calls to then_p and wrapping returned values in
@@ -120,6 +123,9 @@ Promise<NextResult> PromiseInternal<Result>::then_i(
 	UserspaceSpinlock lock(state_lock);
 	ensure_is_unbound();
 	Promise<NextResult> promise;
+	ThenFunc<NextResult> next(then_func);
+	ExceptFunc<NextResult> handler(except_func);
+	FinallyFunc finally(finally_func);
 	/*
 	 * Finally is called at the end of both branches (resolve and reject).
 	 *
@@ -177,10 +183,11 @@ Promise<NextResult> PromiseInternal<Result>::then_i(
 }
 
 template <typename Result>
+template <typename Then, typename NextResult, typename Except, typename Finally, typename>
 void PromiseInternal<Result>::then(
-		const ThenVoidFunc next,
-		const ExceptVoidFunc handler,
-		const FinallyFunc finally)
+	const Then then_func,
+	const Except except_func,
+	const Finally finally_func)
 {
 	/*
 	 * Used to be implemented by calls to then_i with dummy return value but
@@ -189,6 +196,9 @@ void PromiseInternal<Result>::then(
 	ensure_is_unbound();
 	UserspaceSpinlock lock(state_lock);
 	ensure_is_unbound();
+	ThenFunc<NextResult> next(then_func);
+	ExceptFunc<NextResult> handler(except_func);
+	FinallyFunc finally(finally_func);
 	/* Branch for if promise is resolved */
 	on_resolve = [next, finally, this] {
 		try {
@@ -222,18 +232,6 @@ void PromiseInternal<Result>::then(
 		}
 	};
 	assigned_callbacks();
-}
-
-template <typename Result>
-void PromiseInternal<Result>::except(const ExceptVoidFunc handler)
-{
-	then(nullptr, handler);
-}
-
-template <typename Result>
-void PromiseInternal<Result>::finally(const FinallyFunc finally)
-{
-	then(nullptr, nullptr, finally);
 }
 
 template <typename Result>
@@ -343,7 +341,7 @@ Promise<Result> rejected(const string& error)
 /* Create promise factory using given function */
 
 template <typename Result, typename... Args>
-function<Promise<Result>(Args...)> make_factory(
+function<Promise<Result>(Args...)> factory(
 	function<Result(Args...)>& func)
 {
 	return !func ? nullptr :
