@@ -96,6 +96,7 @@ void test_multi()
 		}
 	};
 	taskE = [&] (EventLoop& loop) {
+		this_thread::sleep_for(100ms);
 		order_push("E");
 	};
 	loop.push(EventLoopPool::reactor, taskA);
@@ -107,5 +108,5 @@ int main(int argc, char *argv[])
 {
 	test_single();
 	test_multi();
-	return assert.print();
+	return assert.print(argc, argv);
 }

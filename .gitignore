@@ -1,4 +1,6 @@
 test/*
+obj/*
+dep/*
 out/*
 *.o
 a.out

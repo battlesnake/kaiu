@@ -200,5 +200,5 @@ int main(int argc, char *argv[]) {
 	auto printer = assert.printer();
 	flow_test();
 	combine_test();
-	return assert.print();
+	return assert.print(argc, argv);
 }

@@ -1,52 +1,98 @@
 tests := $(patsubst test_%.cpp, %, $(wildcard test_*.cpp))
 
-cxxextra ?= -g -O0 -DDEBUG
+mode ?= debug
 
-cxx := g++ -std=c++14
-#cxx := clang++ -std=c++14
+show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-cxxopts := -lpthread -Wall $(cxxextra)
+cc := g++
+#cc := clang++
 
-.PHONY: test clean default all list-deps stats tests
+cc_base := -std=c++14
+ld_base := -lpthread
 
-default: all
+ifeq ($(mode),debug)
+cc_opts := $(cc_base) -Wall -Og -g
+ld_opts := $(ld_base)
+else
+ifeq ($(mode),release)
+cc_opts := $(cc_base) -flto -w -O3
+ld_opts := $(ld_base) -flto
+else
+$(error "Unknown mode: %(mode)")
+endif
+endif
 
-all:
-	$(cxx) $(cxxopts) -fsyntax-only $(wildcard *.cpp) 2>&1 | c++-color
+test := test
+dep := dep/$(mode)
+out := out/$(mode)
+obj := obj/$(mode)
+
+outdirs := test/ dep/ out/ obj/
+
+.PHONY: default syntax clean list-deps stats tests
+
+.SECONDARY:
+
+.ONESHELL:
+
+default: syntax
+
+syntax:
+	$(cc) $(cc_base) -Wall -fsyntax-only $(filter-out test_%, $(wildcard *.cpp)) 2>&1 | c++-color
 
 clean:
-	rm -rf -- test/
+	rm -rf -- $(outdirs)
+
+# Run all tests
+
+tests: $(tests:%=test/%)
+	@for test in $^; do
+		printf -- "Running test: '%s'\n" "$${test}"
+		"$${test}" --test-silent-if-perfect
+		printf -- "\n"
+	done
+
+# Fun
 
 list-deps:
 	@perl -ne 'print $$1."\n" if m/#include <([^>]+)>/' *.h *.cpp *.tcc | sort | uniq
 
-test/:
-	mkdir -p $@
-
-test/promise: promise.cpp
-
-test/task: decimal.cpp promise.cpp event_loop.cpp starter_pistol.cpp
-
-test/event_loop: starter_pistol.cpp
-
-test/%: test_%.cpp %.cpp assertion.cpp | test/
-	$(cxx) $(cxxopts) $^ -o $@ 2>&1 | c++-color
-
-test: $(tests:%=test/%) | test/
-	@echo ""
-	@for test in $^; do \
-		printf -- "Running test: '%s'\n\n" "$${test}"; \
-		"$${test}"; \
-		printf -- "\n\n"; \
-	done
-
 stats:
-	@( \
-		printf -- "Lines\tChars\tUnit name\n"; \
-		for root in $$(ls *.{cpp,tcc,h} | sed -e 's/\..*$$//g' | sort -u); do \
-			printf -- "%s\t%s\t%s\n" $$(cat $${root}.* | wc -cl) "$${root}"; \
-		done | sort -rnt$$'\t'; \
+	@(
+		printf -- "Lines\tChars\tUnit name\n"
+		for root in $$(ls *.{cpp,tcc,h} | sed -e 's/\..*$$//g' | sort -u); do
+			printf -- "%s\t%s\t%s\n" $$(cat $${root}.* | wc -cl) "$${root}"
+		done | sort -rnt$$'\t';
 	) | column -t -o' | ' -s$$'\t'
 
-tests:
-	./run_test run: $(tests)
+# Directories
+
+$(test) $(dep) $(out) $(obj):
+	mkdir -p $@
+
+# Object files and autodependencies
+
+$(obj)/%.o: %.cpp | $(obj) $(dep)
+	$(cc) $(cc_opts) $< -MMD -MF $(dep)/$*.d -MQ $@ -c -o $@
+
+# Projects
+
+$(out)/%: $(obj)/%.o | $(out)
+	$(cc) $(ld_opts) $^ -o $@ 2>&1 | c++-color
+
+# Test dependencies
+
+$(test)/promise:
+
+$(test)/event_loop: $(obj)/starter_pistol.o
+
+$(test)/task: $(obj)/promise.o $(obj)/decimal.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+
+# Test binaries
+
+$(test)/%: $(obj)/test_%.o $(obj)/%.o $(obj)/assertion.o | $(test)
+	$(cc) $(ld_opts) $^ -o $@ 2>&1 | c++-color
+
+# Autodependencies
+
+-include $(wildcard $(dep)/*.d)

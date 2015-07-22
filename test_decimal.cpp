@@ -56,4 +56,5 @@ int main(int argc, char *argv[])
 	const decimal fac1k = !decimal(5000);
 	const auto duration = duration_cast<milliseconds>(system_clock::now() - start);
 	assert.expect(fac1k.length() == 16326 && fac1k[0] == 0 && fac1k[fac1k.length() - 1] == 4, true, "5000!", to_string(duration.count()) + string("ms"));
+	return assert.print(argc, argv);
 }

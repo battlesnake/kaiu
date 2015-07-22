@@ -79,18 +79,18 @@ while (( $# )); do
 	# Action
 	case "$1" in
 	run:) action='run'
-		export cxxextra="-O3 -march=native -mtune=native -DNDEBUG -w"
+		export cxxextra="-O3 -w -march=native -mtune=native"
 		shift
 		continue
 		;;
 	debug:) action='debug'
-		unset cxxextra
+		export cxxextra="-O0 -Wall -g -DDEBUG"
 		shift
 		continue
 		;;
 	mem:) ;&
 	memcheck:) action='memcheck'
-		unset cxxextra
+		export cxxextra="-O0 -Wall -g -DDEBUG"
 		shift
 		continue
 		;;
@@ -102,7 +102,7 @@ while (( $# )); do
 	rm -f -- "${target}"
 	printf -- '\n\e[1mBuild (%s)\e[0m\n' "${test}"
 	export o_number
-	if make -B "${target}" && [ -e "${target}" ]; then
+	if make "${target}" && [ -e "${target}" ]; then
 		printf -- '\n\e[36mOutput size: %sk\e[0m\n' "$(printf -- '%s/1024\n' "$(stat -c %s "${target}")" | bc)"
 		case "${action}" in
 		run)

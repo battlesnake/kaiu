@@ -21,7 +21,8 @@ public:
 	void skip(const string& code, const string& note = "");
 	template <typename T, typename U>
 	void expect(const T& t, const U& u, const string& assertion, const string& note = "");
-	int print();
+	int print(bool always = true);
+	int print(const int argc, char const * const argv[]);
 	/* Prints on destruction if no print has happened yet - a scope guard */
 	class Printer {
 	public:

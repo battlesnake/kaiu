@@ -1,5 +1,7 @@
 #include <stdexcept>
 #include <iostream>
+#include <sstream>
+#include <algorithm>
 #include "assertion.h"
 
 namespace mark {
@@ -27,15 +29,16 @@ Assertions::~Assertions()
 	}
 }
 
-int Assertions::print()
+int Assertions::print(bool always)
 {
 	printed = true;
+	stringstream out;
 	unordered_map<State, size_t, hash<int>> count;
 	for (const auto& string : strings) {
 		const auto& code = string.first;
 		const auto& title = string.second;
 		if (code == nullptr) {
-			cout << endl
+			out << endl
 				<< "  \e[97m" << title << "\e[37m" << endl;
 			continue;
 		}
@@ -43,30 +46,42 @@ int Assertions::print()
 		const auto& note = list[code].second;
 		count[result]++;
 		if (result == passed) {
-			cout << "\e[32m    [PASS]\e[37;4m  " << title << "\e[24m";
+			out << "\e[32m    [PASS]\e[37;4m  " << title << "\e[24m";
 		} else if (result == failed) {
-			cout << "\e[31m    [FAIL]\e[37m  " << title;
+			out << "\e[31m    [FAIL]\e[37m  " << title;
 		} else if (result == skipped) {
-			cout << "\e[33m    [SKIP]\e[37m  " << title;
+			out << "\e[33m    [SKIP]\e[37m  " << title;
 		} else if (result == unknown) {
-			cout << "\e[31m    [MISS]\e[37m  " << title;
+			out << "\e[31m    [MISS]\e[37m  " << title;
 		}
 		if (!note.empty()) {
-			cout << " \e[35m" << note << "\e[37m";
+			out << " \e[35m" << note << "\e[37m";
 		}
-		cout << endl;
+		out << endl;
 	}
-	cout << endl
+	out << endl
 		<< "     Passed: " << count[passed] << endl
 		<< "     Failed: " << count[failed] << endl;
 	if (count[skipped]) {
-		cout << "    Skipped: " << count[skipped] << endl;
+		out << "    Skipped: " << count[skipped] << endl;
 	}
 	if (count[unknown]) {
-		cout << "     Missed: " << count[unknown] << endl;
+		out << "     Missed: " << count[unknown] << endl;
 	}
-	cout << endl;
+	out << endl;
+	if (always || count[failed] + count[skipped] + count[unknown] > 0) {
+		cout << out.rdbuf();
+	}
 	return count[failed] + count[unknown];
+}
+
+int Assertions::print(const int argc, char const * const argv[])
+{
+	bool quiet = any_of(argv + 1, argv + argc,
+		[] (const auto s) {
+			return string(s) == "--test-silent-if-perfect";
+		});
+	return print(!quiet);
 }
 
 void Assertions::set(const string& code, const State state, const string& note)
