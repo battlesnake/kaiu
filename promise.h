@@ -117,6 +117,8 @@ template <typename Result> class Promise;
  * Test if a type represents a promise wrapper
  *
  * Example usage: enable_if<is_promise<T>::value>::type
+ *
+ * Could use is_base_of with PromiseBase, this way seems more idiomatic.
  */
 
 template <typename T>
@@ -141,8 +143,11 @@ public:
  * promise chains will most likely break in such conditions.
  */
 
+class PromiseBase {
+};
+
 template <typename Result>
-class Promise {
+class Promise : public PromiseBase {
 	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
 public:
 	static constexpr bool is_promise = true;
@@ -151,9 +156,13 @@ public:
 	Promise();
 	/* Resolved promise */
 	Promise(Result const& result);
+	template <typename T>
+	static Promise<Result> resolved(T result);
 	/* Rejected promise */
 	Promise(const nullptr_t dummy, exception_ptr error);
 	Promise(const nullptr_t dummy, const string& error);
+	template <typename T>
+	static Promise<Result> rejected(T error);
 	/* Default copy/move constructors */
 	Promise(const Promise<Result>&);
 	Promise<Result>& operator =(const Promise<Result>&);
@@ -165,7 +174,8 @@ public:
 	 */
 	PromiseInternal<Result> *operator ->() const;
 private:
-	shared_ptr<PromiseInternal<Result>> promise{nullptr};
+	Promise(PromiseInternal<Result> * const promise);
+	shared_ptr<PromiseInternal<Result>> promise;
 };
 
 static_assert(is_promise<Promise<int>>::value, "is_promise failed (test 1)");
@@ -189,7 +199,7 @@ public:
 	PromiseInternalBase(const nullptr_t dummy, exception_ptr error);
 	PromiseInternalBase(const nullptr_t dummy, const string& error);
 	/* Destructor */
-	~PromiseInternalBase();
+	~PromiseInternalBase() noexcept(false);
 protected:
 	/*
 	 * One of these is called when the promise is resolved/rejected if callbacks
@@ -272,8 +282,8 @@ protected:
  * }
  *
  * get_user_id(session)
- *     ->then<string>(get_username)
- *     ->then<bool>(send_string(connection))
+ *     ->then(get_username)
+ *     ->then(send_string(connection))
  *     ->except([] (auto error) {
  *         ( handle error )
  *     });
@@ -434,7 +444,10 @@ template <typename Result, typename... Args>
 using Factory = function<Promise<Result>(Args...)>;
 
 template <typename Result, typename... Args>
-Factory<Result, Args...> factory(function<Result(Args...)>& func);
+Factory<Result, Args...> factory(Result (*func)(Args...));
+
+template <typename Result, typename... Args>
+Factory<Result, Args...> factory(function<Result(Args...)> func);
 
 /*** Combinators ***/
 

@@ -1,3 +1,4 @@
+#include <stdexcept>
 #include "promise.h"
 
 namespace mark {
@@ -10,18 +11,15 @@ PromiseInternalBase::PromiseInternalBase()
 {
 }
 
-PromiseInternalBase::~PromiseInternalBase() //noexcept(false)
+PromiseInternalBase::~PromiseInternalBase() noexcept(false)
 {
 	lock_guard<mutex> lock(state_lock);
-	if (state == promise_state::completed) {
-		return;
+	/* Not completed and not end of chain */
+	if (callbacks_assigned && state != promise_state::completed) {
+		on_resolve = nullptr;
+		on_reject = nullptr;
+		throw logic_error("Promise destructor called on uncompleted promise");
 	}
-	if (state == promise_state::pending && !callbacks_assigned) {
-		return;
-	}
-	//on_resolve = nullptr;
-	//on_reject = nullptr;
-	//throw logic_error("Promise destructor called on uncompleted promise");
 }
 
 PromiseInternalBase::PromiseInternalBase(const nullptr_t dummy, exception_ptr error) :

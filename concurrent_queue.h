@@ -43,10 +43,10 @@ public:
 	bool isEmpty();
 	bool isEmpty(const unique_lock<mutex>& lock) const;
 private:
-	atomic<bool> nowaiting{false};
 	condition_variable unblock;
 	queue<T> events;
 	mutex& queue_mutex;
+	atomic<bool> nowaiting{false};
 	void notify();
 };
 

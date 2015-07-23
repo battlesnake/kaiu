@@ -49,31 +49,4 @@ auto tuple_map(Tuple const & tuple, Func func)
 	return tuple_map_impl(tuple, func, Indices());
 }
 
-#ifdef test_tuple_iteration
-#include <iostream>
-
-struct functor_each {
-	template <typename T>
-	void operator ()(T&& t) { cout << t << endl; }
-	template <typename T, size_t index>
-	void operator ()(T&& t) { cout << index << ":" << t << endl; }
-};
-struct functor_map {
-	template <typename T>
-	T operator ()(T&& t) { return t + t; }
-	template <typename T, size_t index>
-	T operator ()(T&& t) { return t + t; }
-};
-
-void test() {
-	tuple<int, bool, string> t;
-	tuple_each(t, functor_each());
-	tuple_each_with_index(t, functor_each());
-	t = tuple_map(t, functor_map());
-	tuple_each_with_index(t, functor_each());
-	t = tuple_map_with_index(t, functor_map());
-	tuple_each_with_index(t, functor_each());
-}
-#endif
-
 }

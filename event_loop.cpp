@@ -1,6 +1,5 @@
 #include <stdexcept>
 #include <algorithm>
-#include <iostream>
 #include "event_loop.h"
 
 namespace mark {
@@ -53,7 +52,6 @@ auto SynchronousEventLoop::next(const EventLoopPool pool) -> Event
 
 ParallelEventLoop::ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools) : EventLoop()
 {
-	cerr << " 1";
 	/* Count how many threads we need (including this thread) */
 	int total_threads = 0;
 	for (const auto& pair : pools) {
@@ -76,11 +74,8 @@ ParallelEventLoop::ParallelEventLoop(const unordered_map<EventLoopPool, int, Eve
 		}
 	}
 	/* Mark this thread as started, Wait for all threads to start */
-	cerr << "2";
 	starter_pistol->ready();
-	cerr << "3";
 	starter_pistol.reset(nullptr);
-	cerr << "4";
 }
 
 void ParallelEventLoop::do_threaded_loop(const EventLoopPool pool)
@@ -110,7 +105,6 @@ void ParallelEventLoop::push(const EventLoopPool pool, const EventFunc& event)
 {
 	ConcurrentQueue<Event>& queue = queues.at(pool);
 	queue.emplace(new EventFunc(event));
-	cerr << "5";
 }
 
 void ParallelEventLoop::process_exceptions(function<void(exception_ptr&)> handler)
@@ -179,9 +173,7 @@ void ParallelEventLoop::join(function<void(exception_ptr&)> handler)
 ParallelEventLoop::~ParallelEventLoop()
 {
 	/* Wait for all workers to finish working */
-	cerr << "6";
 	join(nullptr);
-	cerr << "7";
 	/*
 	 * Put queues into no-waiting mode so that they terminate when no events
 	 * are left to be processed (there should be no events left since we just
@@ -191,12 +183,10 @@ ParallelEventLoop::~ParallelEventLoop()
 		auto& queue = pair.second;
 		queue.set_nowaiting(true);
 	}
-	cerr << "8";
 	/* Wait for all workers to terminate */
 	for (auto& thread : threads) {
 		thread.join();
 	}
-	cerr << "9";
 }
 
 }

@@ -103,12 +103,12 @@ decimal decimal::operator +=(const decimal& b)
 
 decimal decimal::operator +(const decimal& b) const
 {
-	return decimal(*this) += b;
+	return move(decimal(*this) += b);
 }
 
 decimal decimal::operator ++()
 {
-	return operator +=(1);
+	return move(operator +=(1));
 }
 
 decimal decimal::operator -=(const decimal& b)
@@ -136,12 +136,12 @@ decimal decimal::operator -=(const decimal& b)
 
 decimal decimal::operator -(const decimal& b) const
 {
-	return decimal(*this) -= b;
+	return move(decimal(*this) -= b);
 }
 
 decimal decimal::operator --()
 {
-	return operator -=(1);
+	return move(operator -=(1));
 }
 
 decimal decimal::operator *(const decimal& value) const
@@ -178,13 +178,13 @@ decimal decimal::operator *(const decimal& value) const
 		c += tmp;
 	}
 	c.remove_lz();
-	return c;
+	return move(c);
 }
 
 decimal decimal::operator *=(const decimal& b)
 {
 	decimal a(*this);
-	*this = a * b;
+	*this = move(a * b);
 	return *this;
 }
 
@@ -197,7 +197,7 @@ decimal decimal::operator !() const {
 	for (decimal i(x - 1); !i.isUnity(); --i) {
 		r *= i;
 	}
-	return r;
+	return move(r);
 }
 
 void decimal::remove_lz()

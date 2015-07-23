@@ -257,35 +257,67 @@ NextResult PromiseInternal<Result>::next_default_value(const Result& value) cons
 
 /*** Promise ***/
 
+/* Access promise */
+
 template <typename Result>
 PromiseInternal<Result> *Promise<Result>::operator ->() const
 {
 	return promise.get();
 }
 
+/* Called by all constructors */
+
 template <typename Result>
-Promise<Result>::Promise() :
-	promise(new PromiseInternal<Result>())
+Promise<Result>::Promise(PromiseInternal<Result> * const promise) :
+	promise(promise)
 {
 }
+
+/* Default constructor */
+
+template <typename Result>
+Promise<Result>::Promise() :
+	Promise(new PromiseInternal<Result>())
+{
+}
+
+/* Resolve constructor and factory */
 
 template <typename Result>
 Promise<Result>::Promise(Result const& result) :
-	promise(new PromiseInternal<Result>(result))
+	Promise(new PromiseInternal<Result>(result))
 {
 }
 
 template <typename Result>
+template <typename T>
+Promise<Result> Promise<Result>::resolved(T result)
+{
+	return move(Promise<Result>(forward<T>(result)));
+}
+
+/* Reject constructors and factory */
+
+template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, exception_ptr error) :
-	promise(new PromiseInternal<Result>(dummy, error))
+	Promise(new PromiseInternal<Result>(dummy, error))
 {
 }
 
 template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, const string& error) :
-	promise(new PromiseInternal<Result>(dummy, error))
+	Promise(new PromiseInternal<Result>(dummy, error))
 {
 }
+
+template <typename Result>
+template <typename T>
+Promise<Result> Promise<Result>::rejected(T error)
+{
+	return move(Promise<Result>{nullptr, error});
+}
+
+/* Copy and move constructors / assigners */
 
 template <typename Result>
 Promise<Result>::Promise(const Promise<Result>& source) :
@@ -301,11 +333,9 @@ Promise<Result>& Promise<Result>::operator =(const Promise<Result>& source)
 }
 
 template <typename Result>
-Promise<Result>::Promise(Promise<Result>&& source) :
-	promise(source.promise)
+Promise<Result>::Promise(Promise<Result>&& source)
 {
-
-	source.promise = nullptr;
+	promise = move(source.promise);
 }
 
 template <typename Result>
@@ -341,15 +371,20 @@ Promise<Result> rejected(const string& error)
 /* Create promise factory using given function */
 
 template <typename Result, typename... Args>
-function<Promise<Result>(Args...)> factory(
-	function<Result(Args...)>& func)
+Factory<Result, Args...> factory(Result (*func)(Args...))
 {
-	return !func ? nullptr :
-		[func] (Args&&... args) {
+	return factory(function<Result(Args...)>(func));
+}
+
+template <typename Result, typename... Args>
+Factory<Result, Args...> factory(function<Result(Args...)> func)
+{
+	return
+		[func] (Args... args) {
 			try {
-				return Promise<Result>::resolve(func(forward<Args>(args)...));
+				return promise::resolved<Result>(func(forward<Args>(args)...));
 			} catch (exception *error) {
-				return Promise<Result>::reject(error);
+				return promise::rejected<Result>(current_exception());
 			}
 		};
 }

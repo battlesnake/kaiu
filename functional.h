@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <tuple>
+#include <utility>
 
 namespace mark {
 
@@ -14,18 +15,12 @@ namespace detail {
  * Calls a function, passing parameters from tuple
  */
 
-template <typename Result, typename Functor, typename CurriedArgs, int ArgCount,
-	bool Complete, int... Indices>
-class InvokeWithTuple {
-public:
-	static Result invoke(Functor func, CurriedArgs&& t);
-};
+template <typename Result, typename Functor, typename Args>
+Result invoke_with_tuple(Functor func, Args tuple);
 
-template <typename Result, typename Functor, typename CurriedArgs, int ArgCount, int... Indices>
-struct InvokeWithTuple<Result, Functor, CurriedArgs, ArgCount, true, Indices...> {
-public:
-	static Result invoke(Functor func, CurriedArgs&& t);
-};
+template <typename Result, typename Functor, typename Args, size_t ArgCount,
+	size_t... Indices>
+Result invoke_shuffle_args(Functor func, index_sequence<Indices...> indices, Args tuple);
 
 /*
  * CurriedFunction<Result, Arity, Functor, CurriedArgs...>(func, [args...])
@@ -37,49 +32,66 @@ public:
  * of the invoked function if all arguments are bound.
  */
 
-template <typename Result, int Arity, typename Functor, typename... CurriedArgs>
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 struct CurriedFunction {
+private:
+	using ArgsTuple = tuple<CurriedArgs...>;
 public:
 	CurriedFunction(Functor func);
-	CurriedFunction(Functor func, tuple<CurriedArgs...> curried_args);
+	CurriedFunction(Functor func, const ArgsTuple& curried_args);
 	/*
-	 * If stored curried_args and passed curried_args don't cover parameter
-	 * list, create a new functor bound to the new arguments and return it
+	 * Function operator ALWAYS invokes, to curry use the "apply" method or the
+	 * "<<" operator.  A previous implementation curried using the function
+	 * operator until sufficient arguments were available to invoke, but that
+	 * could lead to difficult debugging scenarios involving 100+line template
+	 * errors, so I separated "apply" and "invoke" into two different syntaxes.
+	 *
+	 * With parameters, same as .apply(extra_args).invoke()
 	 */
-	template <typename... RemainingArgs>
-	typename
-		enable_if<Arity != sizeof...(CurriedArgs) + sizeof...(RemainingArgs),
-			CurriedFunction<Result, Arity, Functor, CurriedArgs..., RemainingArgs...>>::type
-	operator () (RemainingArgs... remaining_args) const;
+	template <typename... ExtraArgs>
+	typename enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
+	operator () (ExtraArgs&&... extra_args) const;
+	/* With no parameters, same as .invoke() */
+	template <typename... ExtraArgs>
+	typename enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
+	operator () (ExtraArgs&&... extra_args) const;
 	/*
-	 * If stored curried_args and passed curried_args covers the parameter list,
-	 * create a new functor that has complete parameter list and invoke it,
-	 * returning Result
+	 * Left-shift operator to curry arguments one at a time (only curries, never
+	 * invokes - unlike the function operator which invokes as soon as it can)
+	 *
+	 * Same as .apply(arg);
 	 */
-	template <typename... RemainingArgs>
-	typename
-		enable_if<Arity == sizeof...(CurriedArgs) + sizeof...(RemainingArgs),
-			Result>::type
-	operator () (RemainingArgs... remaining_args) const;
-	/* Function operator with no curried_args: Call and return result */
-	Result operator() () const;
-	/* Cast to Result: Call functor with curried_args & cast result  */
-	operator Result () const;
+	template <typename Arg>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg>
+		operator << (Arg&& arg) const;
+	/* Returns a new functor, curried with the extra arguments */
+	template <typename... ExtraArgs>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
+		apply (ExtraArgs&&... extra_args) const;
+	/* Calls the function */
+	template <size_t Arity_ = Arity>
+	typename enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
+	invoke() const;
 private:
+	template <size_t NumArgs>
+	void statically_check_args_count_for_invoke() const;
 	Functor func;
-	tuple<CurriedArgs...> curried_args;
+	ArgsTuple curried_args;
 };
 
 }
 
-/* Curry function with no parameters */
-template <typename Result, typename Functor, typename... CurriedArgs>
-detail::CurriedFunction<Result, 0, Functor, CurriedArgs...>
-	Curry(Functor func, CurriedArgs... curried_args);
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
+using Curried = detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>;
+
+/* Curry std::function with auto parameters */
+template <typename Result, typename... Args, typename... CurriedArgs>
+Curried<Result, sizeof...(Args), function<Result(Args...)>, CurriedArgs...>
+	Curry(function<Result(Args...)> func, CurriedArgs... curried_args);
 
 /* Curry function with Arity parameters */
-template <typename Result, int Arity, typename Functor, typename... CurriedArgs>
-detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
+Curried<Result, Arity, Functor, CurriedArgs...>
 	Curry(Functor func, CurriedArgs... curried_args);
 
 /* Call a function using arguments stored in a tuple */
