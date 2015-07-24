@@ -2,17 +2,13 @@
 
 set -euo pipefail
 
+# Enable tmux integration?
 declare -ri use_tmux=$(if [ "${TMUX_PANE:-}" ]; then echo 1; else echo 0; fi)
+
+declare -i wait_at_end=0
 
 if (( $# == 0 )); then
 	printf >&2 -- 'Test name(s) required'
-	exit
-fi
-
-if [ "$1" == "--here" ]; then
-	shift
-elif (( use_tmux )); then
-	tmux new-window -n 'Tests' "exec '$0' --here $(printf -- " '%s'" "$@")"
 	exit
 fi
 
@@ -22,7 +18,6 @@ function run {(
 	printf -- '\n\e[1mRun (%s)\e[0m\n' "${test}"
 	"${target}"
 	printf >&2 '\n\e[1mDONE\e[0m\n'
-	sleep 1
 )}
 
 function debug {(
@@ -33,51 +28,86 @@ function debug {(
 	printf >&2 '\n\e[1mDONE\e[0m\n'
 )}
 
-function memcheck {(
+function memcheck_helper {(
 	set +e
+	local valtmp="$1"
+	local test="$(cat "${valtmp}.test")"
+
+	function cleanup {
+		kill "$(cat "${valtmp}.pid1")"
+	}
+	trap cleanup EXIT
+	echo "$BASHPID" > "${valtmp}.pid2"
+
+	printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
+	val-color < "${valtmp}.fifo"
+
+	printf >&2 '\n\e[1mDONE\e[0m\n'
+
+	read LINE
+)
+wait_at_end=0
+}
+
+function memcheck {
 	local test="$1" target="$2"
 	if (( use_tmux )); then
+	(
+		set +e
 		printf -- '\n\e[1mMemcheck (%s) [process output]\e[0m\n' "${test}"
-
-		function cleanup {
-			kill "$(cat "${valtmp}.pid")"
-			rm -f -- "${valtmp}".{fifo,pid}
-		}
-		trap cleanup EXIT
 
 		declare valtmp="$(mktemp -u)"
 
+		function cleanup {
+			kill "$(cat "${valtmp}.pid2")"
+			rm -f -- "${valtmp}".{fifo,pid1,pid2,test}
+		}
+		trap cleanup EXIT
+		echo "$BASHPID" > "${valtmp}.pid1"
+
+		echo "${test}" > "${valtmp}.test"
 		mkfifo "${valtmp}.fifo"
 
-		declare mainpid="${BASHPID}"
-
-		tmux split-window -dh "$(cat <<EOF
-			set +e
-
-			function cleanup {
-				kill "${mainpid}"
-			}
-			trap cleanup EXIT
-
-			echo "\$BASHPID" > '${valtmp}.pid'
-
-			printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
-			val-color < '${valtmp}.fifo'
-
-			printf >&2 '\n\e[1mDONE\e[0m\n'
-
-			read LINE
-EOF
-		)"
+		tmux split-window -dh "'$0' --call memcheck_helper '${valtmp}'"
 
 		valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
+
+		read LINE
+	)
+	wait_at_end=0
 	else
+	(
+		set +e
 		printf -- '\n\e[1mMemcheck (%s) [all output]\e[0m\n' "${test}"
 		valgrind --leak-check=yes --track-origins=yes "${target}"
+	)
 	fi
 	printf >&2 '\n\e[1mDONE\e[0m\n'
-	read LINE
-)}
+}
+
+# If in tmux run task asynchronously in new tab, else run synchronously here
+function call {
+	if (( in_call )); then
+		"$@"
+		if (( wait_at_end )); then
+			read LINE
+		fi
+	elif (( use_tmux )); then
+		tmux new-window -n "$1:$2" "exec '$0' --call $(printf -- " '%s'" "$@")"
+	else
+		"$@"
+	fi
+}
+
+# Is this instance just a proxy to run a task in a new tmux pane?
+declare in_call=0
+if [ "$1" == "--call" ]; then
+	shift
+	wait_at_end=1
+	in_call=1
+	call "$@"
+	exit
+fi
 
 declare action='debug'
 declare -i page=0
@@ -106,6 +136,10 @@ while (( $# )); do
 		export mode='debug'
 		continue
 		;;
+	memcheck_helper:)
+		memcheck_helper "$1"
+		exit
+		;;
 	help:)
 		printf -- '\e[1mSyntax:\[0m ./%s ( command: | test-name )+\n' "$(basename "$0")"
 		printf -- '\e[1mCommands:\e[0m\n'
@@ -129,11 +163,11 @@ while (( $# )); do
 		if ! (
 			case "${action}" in
 			run)
-				run "${test}" "${target}";;
+				call run "${test}" "${target}";;
 			debug)
-				debug "${test}" "${target}";;
+				call debug "${test}" "${target}";;
 			memcheck)
-				memcheck "${test}" "${target}";;
+				call memcheck "${test}" "${target}";;
 			esac
 		); then
 			printf -- '\n\e[32;1mCommand failed: %s %s\e[0m\n' "${action}" "${test}"
@@ -143,5 +177,3 @@ while (( $# )); do
 		break
 	fi
 done
-
-read LINE

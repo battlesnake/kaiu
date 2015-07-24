@@ -56,7 +56,6 @@ tests: $(tests:%=test/%)
 	@for test in $^; do
 		printf -- "Running test: '%s'\n" "$${test}"
 		"$${test}" --test-silent-if-perfect
-		printf -- "\n"
 	done
 
 # Fun

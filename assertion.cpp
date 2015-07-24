@@ -73,6 +73,8 @@ int Assertions::print(bool always)
 	}
 	if (always || count[failed] + count[skipped] + count[unknown] > 0) {
 		cout << out.rdbuf() << endl << endl;
+	} else {
+		cout << "\e[32m    [PASS]\e[37;4m  (all)\e[24m" << endl << endl;
 	}
 	return count[failed] + count[unknown];
 }
