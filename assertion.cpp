@@ -24,12 +24,65 @@ Assertions::Assertions(const vector<pair<const char *, const char *>>& strings)
 
 Assertions::~Assertions()
 {
+	lock_guard<mutex> lock(mx);
 	if (!printed) {
-		print();
+		_print(lock, false);
 	}
 }
 
 int Assertions::print(bool always)
+{
+	lock_guard<mutex> lock(mx);
+	return _print(lock, always);
+}
+
+int Assertions::print(const int argc, char const * const argv[])
+{
+	lock_guard<mutex> lock(mx);
+	bool quiet = any_of(argv + 1, argv + argc,
+		[] (const auto s) {
+			return string(s) == "--test-silent-if-perfect";
+		});
+	return _print(lock, !quiet);
+}
+
+void Assertions::set(const string& code, const State state, const string& note)
+{
+	lock_guard<mutex> lock(mx);
+	_set(lock, code, state, note);
+}
+
+void Assertions::pass(const string& code, const string& note)
+{
+	set(code, passed, note);
+}
+
+void Assertions::fail(const string& code, const string& note)
+{
+	set(code, failed, note);
+	cerr << "Assertion " << code << " failed: " << endl;
+}
+
+void Assertions::skip(const string& code, const string& note)
+{
+	set(code, skipped, note);
+}
+
+void Assertions::_set(ensure_locked, const string& code, const State state, const string& note)
+{
+	try {
+		auto& target = list.at(code);
+		if (target.first == unknown) {
+			target = make_pair(state, note);
+		} else {
+			throw logic_error("Two results set for test '" + code + "'");
+		}
+	} catch (const out_of_range& e) {
+		cerr << "Unknown assertion: " << code << endl;
+	}
+}
+
+int Assertions::_print(ensure_locked, bool always)
 {
 	printed = true;
 	stringstream out;
@@ -77,45 +130,6 @@ int Assertions::print(bool always)
 		cout << "\e[32m    [PASS]\e[37;4m  (all)\e[24m" << endl << endl;
 	}
 	return count[failed] + count[unknown];
-}
-
-int Assertions::print(const int argc, char const * const argv[])
-{
-	bool quiet = any_of(argv + 1, argv + argc,
-		[] (const auto s) {
-			return string(s) == "--test-silent-if-perfect";
-		});
-	return print(!quiet);
-}
-
-void Assertions::set(const string& code, const State state, const string& note)
-{
-	try {
-		auto& target = list.at(code);
-		if (target.first == unknown) {
-			target = make_pair(state, note);
-		} else {
-			throw logic_error("Two results set for test '" + code + "'");
-		}
-	} catch (const out_of_range& e) {
-		cerr << "Unknown assertion: " << code << endl;
-	}
-}
-
-void Assertions::pass(const string& code, const string& note)
-{
-	set(code, passed, note);
-}
-
-void Assertions::fail(const string& code, const string& note)
-{
-	set(code, failed, note);
-	cerr << "Assertion " << code << " failed: " << endl;
-}
-
-void Assertions::skip(const string& code, const string& note)
-{
-	set(code, skipped, note);
 }
 
 }
