@@ -153,7 +153,8 @@ void flow_test() {
 			[&done, &cv] {
 				done = true;
 				cv.notify_one();
-			});
+			})
+		->finish();
 	/* Wait for chain to complete */
 	unique_lock<mutex> lock(mx);
 	cv.wait(lock, [&done] { return done; });
@@ -161,7 +162,7 @@ void flow_test() {
 	this_thread::sleep_for(100ms);
 }
 
-void combine_test()
+void static_combine_test()
 {
 	promise::combine(
 		promise::resolved(int(2)),
@@ -196,9 +197,14 @@ void combine_test()
 		});
 }
 
+void dynamic_combine_test()
+{
+}
+
 int main(int argc, char *argv[]) {
 	auto printer = assert.printer();
 	flow_test();
-	combine_test();
+	static_combine_test();
+	dynamic_combine_test();
 	return assert.print(argc, argv);
 }
