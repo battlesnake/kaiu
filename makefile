@@ -4,7 +4,7 @@ mode ?= debug
 
 show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-define_cc_proxy = function cc_proxy { g++ 2>&1 -fopenmp "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; }
+define_cc_proxy = function cc_proxy { echo "g++ $$*"; g++ 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; }
 cc := cc_proxy
 
 cc_base := -std=c++14

@@ -7,7 +7,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
-#include <omp.h>
 #include "assertion.h"
 #include "decimal.h"
 #include "promise.h"

@@ -1,3 +1,7 @@
+#include <thread>
+#include <future>
+#include <mutex>
+#include <algorithm>
 #include "decimal.h"
 
 namespace mark {
@@ -274,19 +278,25 @@ decimal decimal::parallel_multiply(const decimal& l, const decimal& r)
 	}
 	const auto as = a.length();
 	const auto bs = b.length();
+	const size_t cores = std::thread::hardware_concurrency();
+	const size_t workers = min<size_t>(cores, (as / 1000));
+	if (workers == 0) {
+		return l * r;
+	}
 	decimal result;
 	result.digits.resize(as + bs);
-#pragma omp parallel
-	{
+	mutex mx;
+	function<int(size_t, size_t)> partial_product = [&a, &b, as, bs, &mx, &result] (size_t begin, size_t end) {
 		decimal c;
 		c.digits.resize(as + bs);
-#pragma omp for
-		for (size_t i = 0; i < as; i++) {
+		decimal tmp;
+		tmp.digits.reserve(bs + end + 1);
+		for (size_t i = begin; i < end; i++) {
 			const digit ad = a[i];
 			if (ad == 0) {
 				continue;
 			}
-			decimal tmp;
+			fill(tmp.digits.begin(), tmp.digits.end(), 0);
 			tmp.digits.resize(bs + i + 1);
 			digit carry = 0;
 			for (size_t j = 0; j < bs; j++) {
@@ -301,10 +311,20 @@ decimal decimal::parallel_multiply(const decimal& l, const decimal& r)
 			}
 			c += tmp;
 		}
-#pragma omp critical
-		{
-			result += c;
-		}
+		lock_guard<mutex> lock(mx);
+		result += c;
+		return 0;
+	};
+	vector<future<int>> futures;
+	futures.reserve(workers);
+	for (size_t worker = 0; worker < workers; worker++) {
+		const auto begin = (as * worker) / workers;
+		const auto end = (as * (worker + 1)) / workers;
+		futures.emplace_back(async(std::launch::async, partial_product, begin, end));
+	}
+	for (size_t worker = 0; worker < workers; worker++) {
+		auto& future = futures[worker];
+		future.get();
 	}
 	result.remove_lz();
 	return result;
