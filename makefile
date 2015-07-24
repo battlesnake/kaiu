@@ -4,7 +4,7 @@ mode ?= debug
 
 show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-cc := g++ 2>&1
+cc := g++ 2>&1 -fopenmp
 #cc := clang++
 
 cc_base := -std=c++14
@@ -22,6 +22,10 @@ $(error "Unknown mode: %(mode)")
 endif
 endif
 
+ifneq ($(nowarn),)
+cc_opts := $(filter-out -Wall, $(cc_opts)) -w
+endif
+
 test := test
 dep := dep/$(mode)
 out := out/$(mode)
@@ -34,6 +38,8 @@ outdirs := test/ dep/ out/ obj/
 .SECONDARY:
 
 .ONESHELL:
+
+.SHELLFLAGS: -euo pipefail -c
 
 default: syntax
 

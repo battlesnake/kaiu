@@ -5,116 +5,172 @@ namespace mark {
 
 using namespace std;
 
-/*** PromiseInternalBase ***/
+/*** PromiseBase ***/
 
-PromiseInternalBase::PromiseInternalBase()
+void PromiseBase::assign_weak_reference(const shared_ptr<PromiseStateBase> ref)
+{
+	ref->self_weak_reference = ref;
+}
+
+/*** PromiseStateBase ***/
+
+PromiseStateBase::PromiseStateBase()
 {
 }
 
-PromiseInternalBase::~PromiseInternalBase() noexcept(false)
+PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
 	lock_guard<mutex> lock(state_lock);
 	/* Not completed and not end of chain */
 	if (callbacks_assigned && state != promise_state::completed) {
 		on_resolve = nullptr;
 		on_reject = nullptr;
-		throw logic_error("Promise destructor called on uncompleted promise");
+		throw logic_error("Promise destructor called on bound but uncompleted promise");
 	}
 }
 
-PromiseInternalBase::PromiseInternalBase(const nullptr_t dummy, exception_ptr error) :
-	error(error)
+PromiseStateBase::PromiseStateBase(const nullptr_t dummy, exception_ptr error)
+{
+	reject(error);
+}
+
+PromiseStateBase::PromiseStateBase(const nullptr_t dummy, const string& error)
+{
+	reject(error);
+}
+
+void PromiseStateBase::reject(exception_ptr error)
 {
 	lock_guard<mutex> lock(state_lock);
-	rejected();
+	set_error(lock, error);
+	set_state(lock, promise_state::rejected);
 }
 
-PromiseInternalBase::PromiseInternalBase(const nullptr_t dummy, const string& error) :
-	error(make_exception_ptr(runtime_error(error)))
-{
-	lock_guard<mutex> lock(state_lock);
-	rejected();
-}
-
-void PromiseInternalBase::ensure_is_still_pending() const
-{
-	if (state != promise_state::pending) {
-		throw logic_error("Attempted to resolve/reject an already resolved/rejected promise");
-	}
-}
-
-void PromiseInternalBase::assigned_callbacks()
-{
-	callbacks_assigned = true;
-	if (state == promise_state::rejected) {
-		rejected();
-	} else if (state == promise_state::resolved) {
-		resolved();
-	}
-}
-
-void PromiseInternalBase::reject(exception_ptr error)
-{
-	ensure_is_still_pending();
-	lock_guard<mutex> lock(state_lock);
-	ensure_is_still_pending();
-	this->error = error;
-	rejected();
-}
-
-void PromiseInternalBase::reject(const string& error)
+void PromiseStateBase::reject(const string& error)
 {
 	reject(make_exception_ptr(runtime_error(error)));
 }
 
-void PromiseInternalBase::resolved()
+void PromiseStateBase::set_locked(bool locked)
 {
-	/* Only called from within state_lock spinlock */
-	state = promise_state::resolved;
-	if (callbacks_assigned) {
-		on_resolve();
-		completed_and_called();
+	if (locked) {
+		if (!self_strong_reference) {
+			self_strong_reference = self_weak_reference.lock();
+		}
+	} else {
+		self_strong_reference = nullptr;
 	}
 }
 
-void PromiseInternalBase::rejected()
-{
-	/* Only called from within state_lock spinlock */
-	state = promise_state::rejected;
-	if (callbacks_assigned) {
-		on_reject();
-		completed_and_called();
-	}
-}
-
-void PromiseInternalBase::completed_and_called()
-{
-	/* Only called from within state_lock spinlock */
-	if (state == promise_state::pending) {
-		throw logic_error("Attempted to mark uncompleted promise as complete");
-	}
-	state = promise_state::completed;
-	/*
-	 * The callbacks may hold references to this promise's container, via
-	 * closure.  Let's break circular references so we don't memory leak...
-	 */
-	on_resolve = nullptr;
-	on_reject = nullptr;
-	error = exception_ptr{};
-}
-
-void PromiseInternalBase::ensure_is_unbound() const
+void PromiseStateBase::set_callbacks(ensure_locked lock, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject)
 {
 	if (callbacks_assigned) {
 		throw logic_error("Attempted to double-bind to promise");
 	}
+	if (!resolve || !reject) {
+		throw logic_error("Attempted to bind null callback");
+	}
+	on_resolve = resolve;
+	on_reject = reject;
+	callbacks_assigned = true;
+	update_state(lock);
 }
 
+void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_state)
+{
+	/* Validate transition */
+	switch (next_state) {
+	case promise_state::pending:
+		throw logic_error("Cannot explicitly mark a promise as pending");
+	case promise_state::rejected:
+	case promise_state::resolved:
+		if (state == promise_state::pending || state == next_state) {
+			break;
+		}
+		throw logic_error("Cannot resolve/reject promise: it is already resolved/rejected");
+	case promise_state::completed:
+		if (state == promise_state::rejected || state == promise_state::resolved) {
+			break;
+		}
+		throw logic_error("Cannot mark promise as completed: promise has not been resolved/rejected");
+	default:
+		throw logic_error("Invalid state");
+	}
+	/* Apply transition */
+	state = next_state;	
+	update_state(lock);
+}
+
+void PromiseStateBase::update_state(ensure_locked lock)
+{
+	switch (state) {
+	case promise_state::pending:
+		break;
+	case promise_state::rejected:
+		set_locked(true);
+		if (callbacks_assigned) {
+			on_reject(lock);
+			set_state(lock, promise_state::completed);
+		}
+		break;
+	case promise_state::resolved:
+		set_locked(true);
+		if (callbacks_assigned) {
+			on_resolve(lock);
+			set_state(lock, promise_state::completed);
+		}
+		break;
+	case promise_state::completed:
+		/*
+		 * The callbacks should hold references to this promise's container, via
+		 * closures.  Let's break circular references so we don't memory leak...
+		 */
+		on_resolve = nullptr;
+		on_reject = nullptr;
+		set_locked(false);
+		break;
+	}
+}
+
+void PromiseStateBase::set_error(ensure_locked lock, exception_ptr error)
+{
+	this->error = error;
+}
+
+exception_ptr& PromiseStateBase::get_error(ensure_locked)
+{
+	return error;
+}
+
+void PromiseStateBase::set_terminator(ensure_locked lock)
+{
+	set_callbacks(lock,
+		[] (ensure_locked) {}, 
+		[this] (ensure_locked) {
+			if (error) {
+				rethrow_exception(error);
+			}
+		});
+	update_state(lock);
+}
+
+void PromiseStateBase::finish()
+{
+	lock_guard<mutex> lock(state_lock);
+	set_terminator(lock);
+}
+
+/*** Utils ***/
 namespace promise {
 
-Promise<nullptr_t> begin_chain()
+/*
+ * Promise factory creator - for when the parameter is statically known to be
+ * nullptr
+ */
+
+nullptr_t factory(nullptr_t)
 {
-	return Promise<nullptr_t>{nullptr};
+	return nullptr;
 }
 
 }

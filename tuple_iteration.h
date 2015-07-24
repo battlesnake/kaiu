@@ -4,6 +4,8 @@
 #include <cstddef>
 
 namespace mark {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
 
 using namespace std;
 
@@ -49,4 +51,5 @@ auto tuple_map(Tuple const & tuple, Func func)
 	return tuple_map_impl(tuple, func, Indices());
 }
 
+#pragma GCC diagnostic pop
 }

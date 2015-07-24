@@ -9,73 +9,89 @@ namespace mark {
 
 using namespace std;
 
-/*** PromiseInternal ***/
+/*** PromiseState ***/
 
 template <typename Result>
-PromiseInternal<Result>::PromiseInternal(Result const& result)
+PromiseState<Result>::PromiseState(const Result& result) :
+	PromiseStateBase()
 {
 	resolve(result);
 }
 
 template <typename Result>
-void PromiseInternal<Result>::resolve(Result const& result)
+void PromiseState<Result>::set_result(ensure_locked lock, const Result& value)
 {
-	ensure_is_still_pending();
-	lock_guard<mutex> lock(state_lock);
-	ensure_is_still_pending();
-	this->result = result;
-	resolved();
+	result = value;
 }
 
 template <typename Result>
-void PromiseInternal<Result>::forward_to(Promise<Result> next)
+const Result& PromiseState<Result>::get_result(ensure_locked lock)
 {
-	ensure_is_unbound();
-	lock_guard<mutex> lock(state_lock);
-	ensure_is_unbound();
-	on_resolve = [next, this] { next->resolve(result); };
-	on_reject = [next, this] { next->reject(error); };
-	assigned_callbacks();
+	return result;
 }
 
 template <typename Result>
-template <typename Then, typename NextPromise, typename NextResult, typename Except, typename Finally, typename>
-Promise<NextResult> PromiseInternal<Result>::then(
-	const Then then_func,
-	const Except except_func,
-	const Finally finally_func)
+void PromiseState<Result>::resolve(const Result& result)
 {
-	ensure_is_unbound();
 	lock_guard<mutex> lock(state_lock);
-	ensure_is_unbound();
+	set_result(lock, result);
+	set_state(lock, promise_state::resolved);
+}
+
+template <typename Result>
+void PromiseState<Result>::forward_to(Promise<Result> next)
+{
+	lock_guard<mutex> lock(state_lock);
+	auto resolve = [next, this] (ensure_locked lock) {
+		next->resolve(get_result(lock));
+	};
+	auto reject = [next, this] (ensure_locked lock) {
+		next->reject(get_error(lock));
+	};
+	set_callbacks(lock, resolve, reject);
+}
+
+template <typename Result>
+template <typename Next, typename NextPromise, typename NextResult, typename Except, typename Finally, typename>
+Promise<NextResult> PromiseState<Result>::then(
+	Next next_func,
+	Except except_func,
+	Finally finally_func)
+{
+	lock_guard<mutex> lock(state_lock);
 	NextPromise promise;
-	ThenFunc<NextPromise> next(then_func);
+	NextFunc<NextPromise> next(next_func);
 	ExceptFunc<NextPromise> handler(except_func);
 	FinallyFunc finally(finally_func);
+	if (next == nullptr) {
+		next = PromiseState<Result>::default_next<NextResult>;
+	}
+	if (handler == nullptr) {
+		handler = PromiseState<Result>::default_except<NextResult>;
+	}
+	if (finally == nullptr) {
+		finally = PromiseState<Result>::default_finally;
+	}
 	/*
 	 * Finally is called at the end of both branches (resolve and reject).
 	 *
-	 * Returns false iff the finally() callback exists and it threw.
+	 * Returns false iff the finally() callback threw.
 	 */
 	auto call_finally = [promise, finally] {
-		if (!finally) {
-			return true;
-		}
 		try {
 			finally();
-		} catch (exception) {
+		} catch (...) {
 			promise->reject(current_exception());
 			return false;
 		}
 		return true;
 	};
 	/* Branch for if promise is resolved */
-	on_resolve = [promise, next, call_finally, this] {
+	auto resolve = [promise, next, call_finally, this] (ensure_locked lock) {
 		Promise<NextResult> nextResult;
 		try {
-			nextResult = next ? next(result) :
-				Promise<NextResult>(next_default_value<NextResult>(result));
-		} catch (exception) {
+			nextResult = next(get_result(lock));
+		} catch (...) {
 			if (call_finally()) {
 				promise->reject(current_exception());
 			}
@@ -86,15 +102,11 @@ Promise<NextResult> PromiseInternal<Result>::then(
 		}
 	};
 	/* Branch for if promise is rejected */
-	on_reject = [promise, handler, call_finally, this] {
+	auto reject = [promise, handler, call_finally, this] (ensure_locked lock) {
 		Promise<NextResult> nextResult;
 		try {
-			if (handler) {
-				nextResult = handler(error);
-			} else {
-				rethrow_exception(error);
-			}
-		} catch (exception) {
+			nextResult = handler(get_error(lock));
+		} catch (...) {
 			if (call_finally()) {
 				promise->reject(current_exception());
 			}
@@ -104,155 +116,78 @@ Promise<NextResult> PromiseInternal<Result>::then(
 			nextResult->forward_to(promise);
 		}
 	};
-	assigned_callbacks();
+	set_callbacks(lock, resolve, reject);
 	return promise;
 }
 
 template <typename Result>
-template <typename Then, typename NextResult, typename Except, typename Finally, typename>
-Promise<NextResult> PromiseInternal<Result>::then(
-	const Then then_func,
+template <typename Next, typename NextResult, typename Except, typename Finally, typename>
+Promise<NextResult> PromiseState<Result>::then(
+	const Next next_func,
 	const Except except_func,
 	const Finally finally_func)
 {
-	/*
-	 * Used to be implemented by calls to then_p and wrapping returned values in
-	 * promises, but that is stupidly inefficient
-	 */
-	ensure_is_unbound();
-	lock_guard<mutex> lock(state_lock);
-	ensure_is_unbound();
-	Promise<NextResult> promise;
-	ThenFunc<NextResult> next(then_func);
-	ExceptFunc<NextResult> handler(except_func);
-	FinallyFunc finally(finally_func);
-	/*
-	 * Finally is called at the end of both branches (resolve and reject).
-	 *
-	 * Returns false iff the finally() callback exists and it threw.
-	 */
-	auto call_finally = [promise, finally] {
-		if (!finally) {
-			return true;
-		}
-		try {
-			finally();
-		} catch (exception) {
-			promise->reject(current_exception());
-			return false;
-		}
-		return true;
-	};
-	/* Branch for if promise is resolved */
-	on_resolve = [promise, next, call_finally, this] {
-		NextResult nextResult;
-		try {
-			nextResult = next ? next(result) :
-				next_default_value<NextResult>(result);
-		} catch (exception) {
-			if (call_finally()) {
-				promise->reject(current_exception());
-			}
-			return;
-		}
-		if (call_finally()) {
-			promise->resolve(nextResult);
-		}
-	};
-	/* Branch for if promise is rejected */
-	on_reject = [promise, handler, call_finally, this] {
-		NextResult nextResult;
-		try {
-			if (handler) {
-				nextResult = handler(error);
-			} else {
-				rethrow_exception(error);
-			}
-		} catch (exception) {
-			if (call_finally()) {
-				promise->reject(current_exception());
-			}
-			return;
-		}
-		if (call_finally()) {
-			promise->resolve(nextResult);
-		}
-	};
-	assigned_callbacks();
-	return promise;
+	using namespace promise;
+	return then(
+		factory(NextFunc<NextResult>(next_func)),
+		factory(ExceptFunc<NextResult>(except_func)),
+		finally_func);
 }
 
 template <typename Result>
-template <typename Then, typename NextResult, typename Except, typename Finally, typename>
-void PromiseInternal<Result>::then(
-	const Then then_func,
+template <typename Next, typename NextResult, typename Except, typename Finally, typename>
+void PromiseState<Result>::then(
+	const Next next_func,
 	const Except except_func,
 	const Finally finally_func)
 {
-	/*
-	 * Used to be implemented by calls to then_i with dummy return value but
-	 * that seems inefficient
-	 */
-	ensure_is_unbound();
-	lock_guard<mutex> lock(state_lock);
-	ensure_is_unbound();
-	ThenFunc<NextResult> next(then_func);
-	ExceptFunc<NextResult> handler(except_func);
-	FinallyFunc finally(finally_func);
-	/* Branch for if promise is resolved */
-	on_resolve = [next, finally, this] {
-		try {
-			if (next) {
-				next(result);
-			}
-		} catch (exception) {
-			if (finally) {
-				finally();
-			}
-			throw;
+	NextFunc<nullptr_t> then_forward = [next_func] (const Result& result) {
+		if (NextVoidFunc(next_func) != nullptr) {
+			next_func(result);
 		}
-		if (finally) {
-			finally();
-		}
+		return (nullptr_t) nullptr;
 	};
-	/* Branch for if promise is rejected */
-	on_reject = [handler, finally, this] {
-		try {
-			if (handler) {
-				handler(error);
-			}
-		} catch (exception) {
-			if (finally) {
-				finally();
-			}
-			throw;
+	ExceptFunc<nullptr_t> except_forward = [except_func] (exception_ptr error) {
+		if (ExceptVoidFunc(except_func) != nullptr) {
+			except_func(error);
 		}
-		if (finally) {
-			finally();
-		}
+		return (nullptr_t) nullptr;
 	};
-	assigned_callbacks();
+	then(then_forward, except_forward, finally_func)
+		->finish();
+}
+
+template <typename Result>
+template <typename NextResult, typename>
+const NextResult& PromiseState<Result>::forward_result(const Result& result)
+{
+	return result;
+}
+
+template <typename Result>
+template <typename NextResult, int dummy, typename>
+const NextResult& PromiseState<Result>::forward_result(const Result& result)
+{
+	throw new logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
 }
 
 template <typename Result>
 template <typename NextResult>
-NextResult PromiseInternal<Result>::next_default_value(const Result& value) const
+Promise<NextResult> PromiseState<Result>::default_next(const Result& result)
 {
-	constexpr bool same = is_same<NextResult, Result>::value;
-	if (!same) {
-		throw new logic_error(
-			"If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
-	}
-	/*
-	 * Reinterpret cast will only run if dest and source types are identical,
-	 * due to check above.  Although the check is performed at compile-time, we
-	 * avoid compile-time type-errors with this ugly cast, and we throw the type
-	 * error at run-time instead since we can't determine at compile-time
-	 * whether value passing would be required - therefore we would generate
-	 * invalid casts and compilation would fail even when we do not require
-	 * value passing.
-	 */
-	return *reinterpret_cast<const NextResult*>(&value);
+	return Promise<NextResult>(forward_result<NextResult>(result));
+}
+
+template <typename Result>
+template <typename NextResult>
+Promise<NextResult> PromiseState<Result>::default_except(exception_ptr& error)
+{
+	rethrow_exception(error);
+}
+
+template <typename Result>
+void PromiseState<Result>::default_finally()
+{
 }
 
 /*** Promise ***/
@@ -260,89 +195,80 @@ NextResult PromiseInternal<Result>::next_default_value(const Result& value) cons
 /* Access promise */
 
 template <typename Result>
-PromiseInternal<Result> *Promise<Result>::operator ->() const
+auto Promise<Result>::operator ->() const -> PromiseState<DResult> *
 {
 	return promise.get();
 }
 
-/* Called by all constructors */
+/* One of these is always called by the other constructors */
 
 template <typename Result>
-Promise<Result>::Promise(PromiseInternal<Result> * const promise) :
+Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
+	promise(state)
+{
+}
+
+template <typename Result>
+Promise<Result>::Promise(PromiseState<DResult> * const promise) :
 	promise(promise)
 {
+	assign_weak_reference(static_pointer_cast<PromiseStateBase>(this->promise));
 }
 
 /* Default constructor */
 
 template <typename Result>
 Promise<Result>::Promise() :
-	Promise(new PromiseInternal<Result>())
+	Promise(new PromiseState<DResult>())
 {
 }
 
-/* Resolve constructor and factory */
+/* Cast/copy constructors */
 
 template <typename Result>
-Promise<Result>::Promise(Result const& result) :
-	Promise(new PromiseInternal<Result>(result))
+Promise<Result>::Promise(const Promise<DResult>& p) :
+	Promise(p.promise)
 {
 }
 
 template <typename Result>
-template <typename T>
-Promise<Result> Promise<Result>::resolved(T result)
+Promise<Result>::Promise(const Promise<RResult>& p) :
+	Promise(p.promise)
 {
-	return move(Promise<Result>(forward<T>(result)));
 }
 
-/* Reject constructors and factory */
+template <typename Result>
+Promise<Result>::Promise(const Promise<XResult>& p) :
+	Promise(p.promise)
+{
+}
+
+/* Resolve constructor */
+
+template <typename Result>
+Promise<Result>::Promise(DResult&& result) :
+	Promise(new PromiseState<DResult>(forward<DResult>(result)))
+{
+}
+
+template <typename Result>
+Promise<Result>::Promise(const DResult& result) :
+	Promise(DResult(result))
+{
+}
+
+/* Reject constructors */
 
 template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, exception_ptr error) :
-	Promise(new PromiseInternal<Result>(dummy, error))
+	Promise(new PromiseState<DResult>(dummy, error))
 {
 }
 
 template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, const string& error) :
-	Promise(new PromiseInternal<Result>(dummy, error))
+	Promise(new PromiseState<DResult>(dummy, error))
 {
-}
-
-template <typename Result>
-template <typename T>
-Promise<Result> Promise<Result>::rejected(T error)
-{
-	return move(Promise<Result>{nullptr, error});
-}
-
-/* Copy and move constructors / assigners */
-
-template <typename Result>
-Promise<Result>::Promise(const Promise<Result>& source) :
-	promise(source.promise)
-{
-}
-
-template <typename Result>
-Promise<Result>& Promise<Result>::operator =(const Promise<Result>& source)
-{
-	promise = source.promise;
-	return *this;
-}
-
-template <typename Result>
-Promise<Result>::Promise(Promise<Result>&& source)
-{
-	promise = move(source.promise);
-}
-
-template <typename Result>
-Promise<Result>& Promise<Result>::operator =(Promise<Result>&& source)
-{
-	promise = move(source.promise);
-	return *this;
 }
 
 /*** Utils ***/
@@ -350,20 +276,26 @@ namespace promise {
 
 /* Immediate promises */
 
-template <typename Result>
-Promise<Result> resolved(Result const& result)
+template <typename Result, typename DResult>
+Promise<DResult> resolved(Result&& result)
+{
+	return Promise<Result>(forward<Result>(result));
+}
+
+template <typename Result, typename DResult>
+Promise<DResult> resolved(const Result& result)
 {
 	return Promise<Result>(result);
 }
 
-template <typename Result>
-Promise<Result> rejected(exception_ptr error)
+template <typename Result, typename DResult>
+Promise<DResult> rejected(exception_ptr error)
 {
 	return Promise<Result>(nullptr, error);
 }
 
-template <typename Result>
-Promise<Result> rejected(const string& error)
+template <typename Result, typename DResult>
+Promise<DResult> rejected(const string& error)
 {
 	return Promise<Result>(nullptr, error);
 }
@@ -379,14 +311,18 @@ Factory<Result, Args...> factory(Result (*func)(Args...))
 template <typename Result, typename... Args>
 Factory<Result, Args...> factory(function<Result(Args...)> func)
 {
-	return
-		[func] (Args... args) {
-			try {
-				return promise::resolved<Result>(func(forward<Args>(args)...));
-			} catch (exception *error) {
-				return promise::rejected<Result>(current_exception());
-			}
-		};
+	Factory<Result, Args...> factory_function = [func] (Args&&... args) {
+		try {
+			return promise::resolved<Result>(func(forward<Args>(args)...));
+		} catch (...) {
+			return promise::rejected<Result>(current_exception());
+		}
+	};
+	if (func == nullptr) {
+		return nullptr;
+	} else {
+		return factory_function;
+	}
 }
 
 /*** Combine multiple promises into one promise ***/
@@ -400,14 +336,14 @@ struct HeterogenousCombineState {
 	size_t remaining = tuple_size<NextResult>::value;
 	bool failed = false;
 	template <typename Result, const size_t index>
-	void next(Result& result) {
+	void next(const Result& result) {
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
 		get<index>(results) = result;
 	};
-	void handler(exception_ptr error) {
+	void handler(exception_ptr& error) {
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
@@ -446,7 +382,7 @@ struct HeterogenousCombineIterator {
 };
 
 template <typename... Result>
-Promise<tuple<Result...>> combine(Promise<Result>&&... promise)
+Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... promise)
 {
 	using NextResult = tuple<Result...>;
 	/* Convert promise pack to tuple */
@@ -472,14 +408,14 @@ struct HomogenousCombineState {
 		results(count), remaining(count)
 			{ };
 	using Result = NextResult;
-	void next(const size_t index, Result& result) {
+	void next(const size_t index, const Result& result) {
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
 		results[index] = result;
 	};
-	void handler(exception_ptr error) {
+	void handler(exception_ptr& error) {
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
@@ -508,11 +444,13 @@ struct HomogenousCombineIterator {
 	using State = HomogenousCombineState<NextResult>;
 	shared_ptr<State> state;
 	using Result = NextResult;
-	void operator ()(Promise<Result>& promise, const size_t index) {
-		promise->then(
-			bind(&State::next, state, index, placeholders::_1),
-			bind(&State::handler, state, placeholders::_1),
-			bind(&State::finally, state));
+	void operator ()(Promise<Result> promise, const size_t index) {
+		using Events = PromiseState<typename Promise<Result>::DResult>;
+		using namespace placeholders;
+		typename Events::NextVoidFunc next{bind(&State::next, state, index, _1)};
+		typename Events::ExceptVoidFunc handler{bind(&State::handler, state, _1)};
+		typename Events::FinallyFunc finally{bind(&State::finally, state)};
+		promise->then(next, handler, finally);
 	};
 };
 
@@ -537,7 +475,7 @@ Promise<vector<Result>> combine(It first, It last)
 template <typename List, typename Result>
 Promise<vector<Result>> combine(List promises)
 {
-	return combine<typename List::iterator, Result>(
+	return combine<typename List::iterator>(
 		promises.begin(),
 		promises.end(),
 		promises.size());

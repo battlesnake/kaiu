@@ -3,6 +3,7 @@
 #include <string>
 #include <type_traits>
 #include <limits>
+#include <omp.h>
 
 /*
  * Not intended for production use, just something to provide load for testing
@@ -45,6 +46,7 @@ public:
 	bool operator <=(const decimal& b) const;
 	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
 	bool operator ==(const T& b) const;
+	static decimal parallel_multiply(const decimal&, const decimal&);
 private:
 	vector<digit> digits;
 	void remove_lz();

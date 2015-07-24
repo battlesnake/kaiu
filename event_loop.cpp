@@ -90,7 +90,7 @@ void ParallelEventLoop::do_threaded_loop(const EventLoopPool pool)
 	while (Event event = next(pool)) {
 		try {
 			(*event)(*this);
-		} catch (exception e) {
+		} catch (...) {
 			/* Store exception (uses exceptions_mutex) */
 			unique_lock<mutex> lock(exceptions_mutex);
 			exceptions.push(current_exception());

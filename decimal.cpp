@@ -103,12 +103,12 @@ decimal decimal::operator +=(const decimal& b)
 
 decimal decimal::operator +(const decimal& b) const
 {
-	return move(decimal(*this) += b);
+	return decimal(*this) += b;
 }
 
 decimal decimal::operator ++()
 {
-	return move(operator +=(1));
+	return operator +=(1);
 }
 
 decimal decimal::operator -=(const decimal& b)
@@ -136,12 +136,12 @@ decimal decimal::operator -=(const decimal& b)
 
 decimal decimal::operator -(const decimal& b) const
 {
-	return move(decimal(*this) -= b);
+	return decimal(*this) -= b;
 }
 
 decimal decimal::operator --()
 {
-	return move(operator -=(1));
+	return operator -=(1);
 }
 
 decimal decimal::operator *(const decimal& value) const
@@ -178,13 +178,13 @@ decimal decimal::operator *(const decimal& value) const
 		c += tmp;
 	}
 	c.remove_lz();
-	return move(c);
+	return c;
 }
 
 decimal decimal::operator *=(const decimal& b)
 {
 	decimal a(*this);
-	*this = move(a * b);
+	*this = a * b;
 	return *this;
 }
 
@@ -197,7 +197,7 @@ decimal decimal::operator !() const {
 	for (decimal i(x - 1); !i.isUnity(); --i) {
 		r *= i;
 	}
-	return move(r);
+	return r;
 }
 
 void decimal::remove_lz()
@@ -261,6 +261,53 @@ bool decimal::operator <(const decimal& b) const
 bool decimal::operator <=(const decimal& b) const
 {
 	return relation_to(b) <= 0;
+}
+
+decimal decimal::parallel_multiply(const decimal& l, const decimal& r)
+{
+	const decimal& a = l.length() <= r.length() ? l : r;
+	const decimal& b = l.length() > r.length() ? l : r;
+	if (a.isZero()) {
+		return decimal(0);
+	} else if (a.isUnity()) {
+		return b;
+	}
+	const auto as = a.length();
+	const auto bs = b.length();
+	decimal result;
+	result.digits.resize(as + bs);
+#pragma omp parallel
+	{
+		decimal c;
+		c.digits.resize(as + bs);
+#pragma omp for
+		for (size_t i = 0; i < as; i++) {
+			const digit ad = a[i];
+			if (ad == 0) {
+				continue;
+			}
+			decimal tmp;
+			tmp.digits.resize(bs + i + 1);
+			digit carry = 0;
+			for (size_t j = 0; j < bs; j++) {
+				digit d = b[j] * ad + carry;
+				carry = d / 10;
+				tmp[j + i] = d - (carry * 10);
+			}
+			if (carry) {
+				tmp[bs + i] = carry;
+			} else {
+				tmp.digits.resize(bs + i);
+			}
+			c += tmp;
+		}
+#pragma omp critical
+		{
+			result += c;
+		}
+	}
+	result.remove_lz();
+	return result;
 }
 
 }

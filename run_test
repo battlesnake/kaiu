@@ -74,23 +74,32 @@ EOF
 )}
 
 declare action='debug'
+declare -i page=0
 
 while (( $# )); do
 	# Action
 	case "$1" in
+	page:) page=1
+		shift
+		continue
+		;;
+	nopage:) page=0
+		shift
+		continue
+		;;
 	run:) action='run'
 		export cxxextra="-O3 -w -march=native -mtune=native"
 		shift
 		continue
 		;;
 	debug:) action='debug'
-		export cxxextra="-O0 -Wall -g -DDEBUG"
+		export cxxextra="-Og -Wall -g -DDEBUG"
 		shift
 		continue
 		;;
 	mem:) ;&
 	memcheck:) action='memcheck'
-		export cxxextra="-O0 -Wall -g -DDEBUG"
+		export cxxextra="-Og -Wall -g -DDEBUG"
 		shift
 		continue
 		;;
@@ -102,7 +111,7 @@ while (( $# )); do
 	rm -f -- "${target}"
 	printf -- '\n\e[1mBuild (%s)\e[0m\n' "${test}"
 	export o_number
-	if make "${target}" && [ -e "${target}" ]; then
+	if make "${target}" | ( if (( page )); then less -R; else cat; fi ) && [ -e "${target}" ]; then
 		printf -- '\n\e[36mOutput size: %sk\e[0m\n' "$(printf -- '%s/1024\n' "$(stat -c %s "${target}")" | bc)"
 		case "${action}" in
 		run)
@@ -114,7 +123,7 @@ while (( $# )); do
 		esac
 	else
 		printf -- '\n\e[31;1mBuild failed (%s)\e[0m\n' "${test}"
-		read LINE
+		break
 	fi
 done
 

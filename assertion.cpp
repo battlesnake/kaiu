@@ -33,6 +33,7 @@ int Assertions::print(bool always)
 {
 	printed = true;
 	stringstream out;
+	stringstream fail_codes;
 	unordered_map<State, size_t, hash<int>> count;
 	for (const auto& string : strings) {
 		const auto& code = string.first;
@@ -49,10 +50,12 @@ int Assertions::print(bool always)
 			out << "\e[32m    [PASS]\e[37;4m  " << title << "\e[24m";
 		} else if (result == failed) {
 			out << "\e[31m    [FAIL]\e[37m  " << title;
+			fail_codes << "  " << code;
 		} else if (result == skipped) {
 			out << "\e[33m    [SKIP]\e[37m  " << title;
 		} else if (result == unknown) {
 			out << "\e[31m    [MISS]\e[37m  " << title;
+			fail_codes << "  " << code;
 		}
 		if (!note.empty()) {
 			out << " \e[35m" << note << "\e[37m";
@@ -61,16 +64,15 @@ int Assertions::print(bool always)
 	}
 	out << endl
 		<< "     Passed: " << count[passed] << endl
-		<< "     Failed: " << count[failed] << endl;
+		<< "     Failed: " << count[failed] << fail_codes.rdbuf() << endl;
 	if (count[skipped]) {
 		out << "    Skipped: " << count[skipped] << endl;
 	}
 	if (count[unknown]) {
 		out << "     Missed: " << count[unknown] << endl;
 	}
-	out << endl;
 	if (always || count[failed] + count[skipped] + count[unknown] > 0) {
-		cout << out.rdbuf();
+		cout << out.rdbuf() << endl << endl;
 	}
 	return count[failed] + count[unknown];
 }
@@ -86,11 +88,15 @@ int Assertions::print(const int argc, char const * const argv[])
 
 void Assertions::set(const string& code, const State state, const string& note)
 {
-	auto& target = list.at(code);
-	if (target.first == unknown) {
-		target = make_pair(state, note);
-	} else {
-		throw logic_error("Two results set for test '" + code + "'");
+	try {
+		auto& target = list.at(code);
+		if (target.first == unknown) {
+			target = make_pair(state, note);
+		} else {
+			throw logic_error("Two results set for test '" + code + "'");
+		}
+	} catch (const out_of_range& e) {
+		cerr << "Unknown assertion: " << code << endl;
 	}
 }
 
@@ -102,6 +108,7 @@ void Assertions::pass(const string& code, const string& note)
 void Assertions::fail(const string& code, const string& note)
 {
 	set(code, failed, note);
+	cerr << "Assertion " << code << " failed: " << endl;
 }
 
 void Assertions::skip(const string& code, const string& note)

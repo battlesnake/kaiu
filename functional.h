@@ -59,12 +59,20 @@ public:
 	 * Left-shift operator to curry arguments one at a time (only curries, never
 	 * invokes - unlike the function operator which invokes as soon as it can)
 	 *
-	 * Same as .apply(arg);
+	 * Similar as .apply(arg), but captures by VALUE instead of by reference,
+	 * unless std::reference_wrapper is used.
 	 */
 	template <typename Arg>
-	CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg&>
+		operator << (reference_wrapper<Arg> ref) const;
+	template <typename Arg>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename decay<Arg>::type>
 		operator << (Arg&& arg) const;
-	/* Returns a new functor, curried with the extra arguments */
+	/*
+	 * Returns a new functor, curried with the extra arguments.
+	 * It captures by REFERENCE where possible.  Either use static_cast or use
+	 * operator<< to capture by value.
+	 */
 	template <typename... ExtraArgs>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
 		apply (ExtraArgs&&... extra_args) const;
@@ -72,6 +80,9 @@ public:
 	template <size_t Arity_ = Arity>
 	typename enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
 	invoke() const;
+	/* Null-pointer comparison */
+	bool operator == (nullptr_t) const;
+	bool operator != (nullptr_t) const;
 private:
 	template <size_t NumArgs>
 	void statically_check_args_count_for_invoke() const;

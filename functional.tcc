@@ -1,6 +1,4 @@
 #define functional_tcc
-#include <type_traits>
-#include <utility>
 #include "functional.h"
 
 namespace mark {
@@ -59,11 +57,20 @@ CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <typename Arg>
-CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg>
+CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg&>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs...>
+		::operator << (reference_wrapper<Arg> ref) const
+{
+	return apply(ref.get());
+}
+
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
+template <typename Arg>
+CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename decay<Arg>::type>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 		::operator << (Arg&& arg) const
 {
-	return apply(forward<Arg>(arg));
+	return apply(static_cast<typename decay<Arg>::type>(arg));
 }
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
@@ -112,6 +119,20 @@ void CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 	 */
 	static_assert(NumArgs >= Arity, "Cannot invoke curried function, not enough arguments curried/passed to it at time of invocation");
 	static_assert(NumArgs <= Arity, "Cannot invoke curried function, too many arguments curried/passed to it at time of invocation");
+}
+
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
+bool CurriedFunction<Result, Arity, Functor, CurriedArgs...>
+	::operator == (nullptr_t) const
+{
+	return false;
+}
+
+template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
+bool CurriedFunction<Result, Arity, Functor, CurriedArgs...>
+	::operator != (nullptr_t) const
+{
+	return !operator ==(nullptr);
 }
 
 } /* end namespace detail */

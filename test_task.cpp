@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <stdexcept>
@@ -6,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <omp.h>
 #include "assertion.h"
 #include "decimal.h"
 #include "promise.h"
@@ -36,7 +38,7 @@ ParallelEventLoop loop{ {
 
 string writeStrFunc(const string& message)
 {
-	cout << message << endl;
+	//cout << message << endl;
 	return message;
 }
 
@@ -48,24 +50,24 @@ decimal writeNumFunc(const decimal& value)
 
 decimal factorial(const decimal& x)
 {
-	return move(!x);
+	return !x;
 }
 
 decimal partial_factorial(const decimal& x, const decimal& offset, const decimal& step)
 {
 	if (offset > x) {
-		return move(decimal(1));
+		return decimal(1);
 	}
 	decimal r(offset);
 	for (decimal i = offset + step; i <= x; i += step) {
 		r *= i;
 	}
-	return move(r);
+	return r;
 }
 
 decimal partial_factorial_tuple(const tuple<decimal, decimal, decimal>& range)
 {
-	return move(partial_factorial(get<0>(range), get<1>(range), get<2>(range)));
+	return partial_factorial(get<0>(range), get<1>(range), get<2>(range));
 }
 
 string format_result(const time_point<system_clock>& start, const int& i, const decimal& result)
@@ -92,28 +94,38 @@ decimal series_product(const vector<decimal>& series)
 			first = false;
 			continue;
 		}
-		reductor *= value;
+		reductor = decimal::parallel_multiply(reductor, value);
+		//reductor *= value;
 	}
-	return move(reductor);
+	return reductor;
 }
 
-auto writeStr = promise::task(promise::factory(writeStrFunc),
-	EventLoopPool::interaction, EventLoopPool::reactor) << loop;
+void print_error(exception_ptr& error)
+{
+	try {
+		rethrow_exception(error);
+	} catch (const exception& e) {
+		cerr << "Exception!  Message: " << e.what() << endl;
+	}
+}
 
-auto writeNum = promise::task(promise::factory(writeNumFunc),
-	EventLoopPool::interaction, EventLoopPool::reactor) << loop;
+const auto writeStr = promise::task(promise::factory(writeStrFunc),
+	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-auto calcFactorial = promise::task(promise::factory(factorial),
-	EventLoopPool::calculation, EventLoopPool::reactor) << loop;
+const auto writeNum = promise::task(promise::factory(writeNumFunc),
+	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-auto calcPartialFactorial = promise::task(promise::factory(partial_factorial_tuple),
-	EventLoopPool::calculation, EventLoopPool::reactor) << loop;
+const auto calcFactorial = promise::task(promise::factory(factorial),
+	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
+
+const auto calcPartialFactorial = promise::task(promise::factory(partial_factorial_tuple),
+	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
 
 const auto formatResult = promise::task(promise::factory(format_result),
-	EventLoopPool::interaction, EventLoopPool::reactor) << loop;
+	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-auto seriesProduct = promise::task(promise::factory(series_product),
-	EventLoopPool::calculation, EventLoopPool::reactor) << loop;
+const auto seriesProduct = promise::task(promise::factory(series_product),
+	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
 
 void calculateMultipleFactorials()
 {
@@ -126,18 +138,19 @@ void calculateMultipleFactorials()
 	for (int i = 625; i <= 10000; i *= 2) {
 		promise::resolved(i)
 			->then(calcFactorial)
-			->then(formatResult << start << i)
-			->then(writeStr);
+			->then(formatResult << cref(start) << i)
+			->then(writeStr)
+			->finish();
 	}
-	loop.join();
+	loop.join(print_error);
 }
 
 void calculateOneFactorial()
 {
 	/* Calculate one huge factorial */
-	const auto tasks = cores >= 4 ? 4 : (cores + 1);
+	const auto tasks = cores >= 8 ? 8 : (cores + 1);
 	const int x = 10001;
-	vector<Promise<decimal>> partials;
+	vector<Promise<decimal&&>> partials;
 	partials.reserve(tasks);
 	const auto start = system_clock::now();
 	for (remove_const<decltype(tasks)>::type i = 0; i < tasks; i++) {
@@ -148,9 +161,10 @@ void calculateOneFactorial()
 	}
 	promise::combine(partials)
 		->then(seriesProduct)
-		->then(formatResult << start << x)
-		->then(writeStr);
-	loop.join();
+		->then(formatResult << cref(start) << x)
+		->then(writeStr)
+		->finish();
+	loop.join(print_error);
 }
 
 int main(int argc, char *argv[])

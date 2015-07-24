@@ -39,13 +39,16 @@ private:
 	unordered_map<string, pair<State, string>> list;
 };
 
-template <typename T, typename U>
-void Assertions::expect(const T& t, const U& u, const string& assertion, const string& note)
+template <typename Actual, typename Expect>
+void Assertions::expect(const Actual& actual, const Expect& expect, const string& assertion, const string& note)
 {
-	if (t == u) {
+	if (actual == expect) {
 		pass(assertion, note);
 	} else {
 		fail(assertion, note);
+//		cerr
+//			<< "  Expect: " << expect << endl
+//			<< "  Actual: " << actual << endl;
 	}
 }
 

@@ -11,18 +11,25 @@
 namespace mark {
 
 /*
- * Promise, inspired by the JavaScript Q library.
+ * Promise, inspired by the JavaScript Q library, Unlambda, and Haskell.
  *
- * A promise object encapsulates a value that may not exist yet.
+ * A promise encapsulates the result of an operation that may not hav completed
+ * yet, and may not even have been started yet.  They're great for non-blocking
+ * asynchronous programming (e.g. the NodeJS reactor) and can also be used to
+ * provide lazy evaluation.
  *
  * When the value has been acquired, then the promise is "resolved" and a "next"
  * callback is called with the value.
  *
- * If the value cannot be resolved, then it is rejected with an exception (or a
- * string that is mapped to an exception) and the "except" callback is called
+ * If the value cannot be resolved, then it is "rejected" with an exception (or
+ * a string that is mapped to an exception) and the "except" callback is called
  * instead.
  *
- * A promise is "completed" when it has either been "rejected" or "resolved".
+ * Resolution is the equivalent of a function returning a value, and rejection
+ * is the equivalent of a function throwing or returning an error.
+ *
+ * A promise is "completed" after it has either been "rejected" or "resolved"
+ * and the relevant callbacks have been called.
  *
  * The following are functionally equivalent (next/handler can be nullptr):
  *   - promise.then(next, handler, finalizer)
@@ -75,18 +82,20 @@ namespace mark {
  *   - with no handler, rejected promise propagates by rejection of the next
  *     promise.
  *   - handler can re-throw, causing rejection of the next promise.
+ *   - handler can return a value, causing resolution of the next promise.
  *   - if next/handler/finally throws, the next promise is rejected.  handler is
  *     NOT called when next/finally throws, as handler operates on this promise,
  *     not the next one.
  *   - next promise is resolved iff either:
  *      - this promise is resolved and none of the callbacks throw.
- *      - this promise is rejected and has a handler which doesn't throw.
+ *      - this promise is rejected and has a handler which returns a resolution.
  *   - next promise is rejected iff either:
  *      - this promise is resolved but a callback throws.
  *      - this promise is rejected and either has no handler or the handler
  *        throws.
  *   - if next promise is rejected, exception thrown by finally takes priority
- *     over exception thrown by next/except.
+ *     over exception thrown by next/except (regarding exception used to reject
+ *     next promise).
  *
  * except(handler, finally = nullptr):
  *   - shorthand for then(nullptr, handler, finally)
@@ -97,24 +106,19 @@ namespace mark {
 
 using namespace std;
 
-/*
- * PromiseInternal is internal representation of a promise
- */
+template <typename T>
+using remove_cvr = remove_reference<typename remove_cv<T>::type>;
 
-class PromiseInternalBase;
+class PromiseStateBase;
 
-template <typename Result> class PromiseInternal;
-
-/*
- * Promise wraps the PromiseInternal in a smart pointer for efficient copying
- */
+template <typename Result> class PromiseState;
 
 class PromiseBase;
 
 template <typename Result> class Promise;
 
 /***
- * Test if a type represents a promise wrapper
+ * Test if a type represents a promise
  *
  * Example usage: enable_if<is_promise<T>::value>::type
  *
@@ -133,91 +137,91 @@ public:
 };
 
 /***
- * Promises should always be passed around in this wrapper, to avoid
- * copying/moving of the larger promise structure (and whatever data may be
- * captured in its closures or result).  The internal promise object has no move
- * or copy constructors, intentionally.
+ * Promise class
  *
  * The default (no-parameter) constructor for Result type and for NextResult
  * type must not throw - promise behaviour is undefined if this happens and
- * promise chains will most likely break in such conditions.
+ * promise chains guarantees will most likely break in such conditions.
  */
 
 class PromiseBase {
+protected:
+	void assign_weak_reference(const shared_ptr<PromiseStateBase> ref);
 };
 
 template <typename Result>
 class Promise : public PromiseBase {
 	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
+	static_assert(!is_promise<Result>::value, "Promise<Promise<T>> is invalid, use Promise<T> instead");
 public:
+	using DResult = typename remove_cvr<Result>::type;
+	using RResult = DResult&;
+	using XResult = DResult&&;
 	static constexpr bool is_promise = true;
 	using result_type = Result;
 	/* Promise */
 	Promise();
 	/* Resolved promise */
-	Promise(Result const& result);
-	template <typename T>
-	static Promise<Result> resolved(T result);
+	Promise(DResult&& result);
+	Promise(DResult const& result);
 	/* Rejected promise */
 	Promise(const nullptr_t dummy, exception_ptr error);
 	Promise(const nullptr_t dummy, const string& error);
-	template <typename T>
-	static Promise<Result> rejected(T error);
-	/* Default copy/move constructors */
-	Promise(const Promise<Result>&);
-	Promise<Result>& operator =(const Promise<Result>&);
-	Promise(Promise<Result>&&);
-	Promise<Result>& operator =(Promise<Result>&&);
-	/*
-	 * Get wrapped promise (for accessing methods e.g.
-	 * then/except/finally/resolve/reject)
-	 */
-	PromiseInternal<Result> *operator ->() const;
+	/* Copy/move/cast constructors */
+	Promise(const Promise<DResult>&);
+	Promise(const Promise<RResult>&);
+	Promise(const Promise<XResult>&);
+	Promise(Promise<Result>&&) = default;
+	/* Assignment */
+	Promise<Result>& operator =(Promise<Result>&&) = default;
+	Promise<Result>& operator =(const Promise<Result>&) = default;
+	/* Access promise state (then/except/finally/resolve/reject) */
+	PromiseState<DResult> *operator ->() const;
 private:
-	Promise(PromiseInternal<Result> * const promise);
-	shared_ptr<PromiseInternal<Result>> promise;
+	friend class PromiseState<DResult>;
+	friend class Promise<DResult>;
+	friend class Promise<RResult>;
+	friend class Promise<XResult>;
+	Promise(PromiseState<DResult> * const promise);
+	Promise(shared_ptr<PromiseState<DResult>> const promise);
+	shared_ptr<PromiseState<DResult>> promise;
 };
 
 static_assert(is_promise<Promise<int>>::value, "is_promise failed (test 1)");
 static_assert(!is_promise<int>::value, "is_promise failed (test 2)");
 
 /***
- * Non-templated base class for promises (handles everything except resolution)
+ * Untyped promise state
  */
 
-class PromiseInternalBase {
+class PromiseStateBase {
 public:
 	/* Reject */
 	void reject(exception_ptr error);
 	void reject(const string& error);
 	/* Default constructor */
-	PromiseInternalBase();
+	PromiseStateBase();
 	/* No copy/move constructor */
-	PromiseInternalBase(PromiseInternalBase const&) = delete;
-	PromiseInternalBase(PromiseInternalBase&&) = delete;
+	PromiseStateBase(PromiseStateBase const&) = delete;
+	PromiseStateBase(PromiseStateBase&&) = delete;
 	/* Construct a rejected promise */
-	PromiseInternalBase(const nullptr_t dummy, exception_ptr error);
-	PromiseInternalBase(const nullptr_t dummy, const string& error);
+	PromiseStateBase(const nullptr_t dummy, exception_ptr error);
+	PromiseStateBase(const nullptr_t dummy, const string& error);
 	/* Destructor */
-	~PromiseInternalBase() noexcept(false);
+	~PromiseStateBase() noexcept(false);
+	/* Make terminator */
+	void finish();
 protected:
 	/*
-	 * One of these is called when the promise is resolved/rejected if callbacks
-	 * are already bound.  If the promise does not already have callbacks bound
-	 * when it is resolved/rejected, then the result/error is stored, and the
-	 * appropriate one of these functions is called as soon as callbacks are
-	 * bound to the promise.
+	 * All protected functions require a lock_guard to have been acquired on the
+	 * state_lock, this is enforced via a reference parameter that the compiler
+	 * should be able to happily optimize out.
+	 * TODO: Remove the lock-passing sanity-check before release.
 	 */
-	function<void()> on_resolve{nullptr};
-	function<void()> on_reject{nullptr};
+	using ensure_locked = lock_guard<mutex> const &;
+	mutex state_lock;
 	/*
-	 * We release the callbacks after using them, so this variable is used to
-	 * track whether we have bound callbacks at all, so that re-binding cannot
-	 * happen after unbinding (and completion).
-	 */
-	bool callbacks_assigned{false};
-	/*
-	 * State of the promise:
+	 * State transitions for a promise:
 	 *
 	 *  no result  |  has result    |  relevant callback(s)
 	 *  or error   |  value/error   |  have been called
@@ -229,40 +233,47 @@ protected:
 	 *
 	 */
 	enum class promise_state { pending, rejected, resolved, completed };
+	/* Validates that the above state transitions are being followed */
+	void set_state(ensure_locked, const promise_state next_state);
+	/* Re-applies the current state, advances to next state if possible */
+	void update_state(ensure_locked);
+	/*
+	 * Set the resolve/reject callbacks.  If the promise has been
+	 * resolved/rejected, the appropriate callback will be called immediately.
+	 */
+	void set_callbacks(ensure_locked, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject);
+	/* Get/set rejection result */
+	void set_error(ensure_locked, exception_ptr error);
+	exception_ptr& get_error(ensure_locked);
+	/* Make this promise a terminator */
+	void set_terminator(ensure_locked);
+	/* Prevent destruction via self-reference.  Does not count locks/unlocks. */
+	void set_locked(bool locked);
+private:
 	promise_state state{promise_state::pending};
-	/*
-	 * The state_lock must be acquired before these are called.  If handlers
-	 * have been assigned, then these functions call the handlers, otherwise
-	 * they do nothing.
-	 */
-	void resolved();
-	void rejected();
-	/* Called when callbacks have been assigned */
-	void assigned_callbacks();
-	/* Called on resolve/reject after callbacks */
-	void completed_and_called();
-	/*
-	 * Locked when:
-	 *   - binding callbacks
-	 *   - storing result/error
-	 *   - calling callbacks
-	 */
-	mutex state_lock;
-	/* Sanity checks */
-	void ensure_is_still_pending() const;
-	void ensure_is_unbound() const;
-	/* Stores caught error */
 	exception_ptr error{};
+	/*
+	 * We release the callbacks after using them, so this variable is used to
+	 * track whether we have bound callbacks at all, so that re-binding cannot
+	 * happen after unbinding (and completion).
+	 */
+	bool callbacks_assigned{false};
+	function<void(ensure_locked)> on_resolve{nullptr};
+	function<void(ensure_locked)> on_reject{nullptr};
+	/* Self-references, used to control lifetime of the state object */
+	weak_ptr<PromiseStateBase> self_weak_reference;
+	shared_ptr<PromiseStateBase> self_strong_reference;
+	friend class PromiseBase;
 };
 
 /***
- * Internal class for promises
+ * Typed promise state
  *
- * You will never use this class directly, instead use the Promise<T> wrapper,
- * which encapsulates a PromiseInternal<T>.
+ * You will never use this class directly, instead use the Promise<T>, which
+ * encapsulates a shareable PromiseState<T>.
  *
- * The PromiseInternal<T> is aggregated onto the Promise<T> via the member (->)
- * operator, e.g.
+ * The PromiseState<T> is aggregated onto the Promise<T> via the member (->)
+ * operator.
  *
  * Promise<string> get_username(int user_id)
  * {
@@ -291,36 +302,41 @@ protected:
  */
 
 template <typename Result>
-class PromiseInternal : public PromiseInternalBase {
-	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
+class PromiseState : public PromiseStateBase {
 public:
-	/* "then" and "except" ending promise chain */
-	using ThenVoidFunc = function<void(Result&)>;
-	using ExceptVoidFunc = function<void(exception_ptr)>;
+	static_assert(
+		is_same<Result, typename remove_cvr<Result>::type>::value,
+		"Type parameter for promise internal state must not be cv-qualified or a reference");
 	/* "then" and "except" returning new value to next promise */
 	template <typename NextResult = Result>
-		using ThenFunc = function<NextResult(Result&)>;
+		using NextFunc = function<NextResult(const Result&)>;
 	template <typename NextResult = Result>
-		using ExceptFunc = function<NextResult(exception_ptr)>;
+		using ExceptFunc = function<NextResult(exception_ptr&)>;
+	/* "then" and "except" ending promise chain */
+	using NextVoidFunc = NextFunc<void>;
+	using ExceptVoidFunc = ExceptFunc<void>;
 	/* "finally" doesn't return any value */
 	using FinallyFunc = function<void()>;
 	/* Default constructor */
-	PromiseInternal() = default;
-	using PromiseInternalBase::PromiseInternalBase;
+	PromiseState() = default;
+	using PromiseStateBase::PromiseStateBase;
 	/* No copy/move constructors */
-	PromiseInternal(PromiseInternal<Result>&&) = delete;
-	PromiseInternal(const PromiseInternal<Result>&) = delete;
-	/* Construct an immediately resolved (copy/move result) */
-	PromiseInternal(Result const& result);
-	/* Resolve (copy/move result) */
-	void resolve(Result const& result);
-	using PromiseInternalBase::reject;
+	PromiseState(PromiseState<Result>&&) = delete;
+	PromiseState(const PromiseState<Result>&) = delete;
+	/* Construct an immediately resolved */
+	PromiseState(const Result& result);
+	/* Resolve */
+	void resolve(const Result& result);
+	/* Reject */
+	using PromiseStateBase::reject;
 	/* Forwards the result of this promise to another promise */
 	void forward_to(Promise<Result> next);
 	/* Then (callbacks return immediate value) */
+	template <typename Next>
+	using ThenResult = typename result_of<Next(Result&&)>::type;
 	template <
-		typename Then,
-		typename NextResult = typename result_of<Then(Result&)>::type,
+		typename Next,
+		typename NextResult = ThenResult<Next>,
 		typename Except = ExceptFunc<NextResult>,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
@@ -328,13 +344,13 @@ public:
 			!is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> then(
-			const Then /* ThenFunc<NextResult> */ then_func,
-			const Except /* ExceptFunc<NextResult> */ except_func = nullptr,
-			const Finally /* FinallyFunc */ finally_func = nullptr);
+			Next /* NextFunc<NextResult> */ next_func,
+			Except /* ExceptFunc<NextResult> */ except_func = nullptr,
+			Finally /* FinallyFunc */ finally_func = nullptr);
 	/* Then (callbacks return promise) */
 	template <
-		typename Then,
-		typename NextPromise = typename result_of<Then(Result&)>::type,
+		typename Next,
+		typename NextPromise = ThenResult<Next>,
 		typename NextResult = typename NextPromise::result_type,
 		typename Except = ExceptFunc<NextPromise>,
 		typename Finally = FinallyFunc,
@@ -342,33 +358,33 @@ public:
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> then(
-			const Then /* ThenFunc<Promise<NextResult>> */ then_func,
-			const Except /* ExceptFunc<Promise<NextResult>> */ except_func = nullptr,
-			const Finally /* FinallyFunc */ finally_func = nullptr);
+			Next /* NextFunc<Promise<NextResult>> */ next_func,
+			Except /* ExceptFunc<Promise<NextResult>> */ except_func = nullptr,
+			Finally /* FinallyFunc */ finally_func = nullptr);
 	/* Then (end promise chain) */
 	template <
-		typename Then,
-		typename NextResult = typename result_of<Then(Result&)>::type,
+		typename Next,
+		typename NextResult = ThenResult<Next>,
 		typename Except = ExceptVoidFunc,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
 			is_void<NextResult>::value
 		>::type>
 	void then(
-		const Then /* ThenVoidFunc */ then_func,
-		const Except /* ExceptVoidFunc */ except_func = nullptr,
-		const Finally /* FinallyFunc */ finally_func = nullptr);
+		Next /* NextVoidFunc */ next_func,
+		Except /* ExceptVoidFunc */ except_func = nullptr,
+		Finally /* FinallyFunc */ finally_func = nullptr);
 	/* Except */
 	template <
 		typename Except,
-		typename NextPromise = typename result_of<Except(exception_ptr)>::type,
+		typename NextPromise = typename result_of<Except(exception_ptr&)>::type,
 		typename NextResult = typename NextPromise::result_type,
 		typename = typename enable_if<
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> except(
-		const Except /* ExceptFunc<Promise<NextResult>> */ except_func)
-			{ return then<ThenFunc<Promise<NextResult>>>(nullptr, except_func); };
+		Except /* ExceptFunc<Promise<NextResult>> */ except_func)
+			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); };
 	template <
 		typename Except,
 		typename NextResult = typename result_of<Except(exception_ptr)>::type,
@@ -377,32 +393,41 @@ public:
 			!is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> except(
-		const Except /* ExceptFunc<NextResult> */ except_func)
-			{ return then<ThenFunc<NextResult>>(nullptr, except_func); };
+		Except /* ExceptFunc<NextResult> */ except_func)
+			{ return then<NextFunc<NextResult>>(nullptr, except_func); };
 	/* Except (end promise chain) */
 	template <
 		typename Except,
-		typename NextResult = typename result_of<Except(exception_ptr)>::type,
+		typename NextResult = typename result_of<Except(exception_ptr&)>::type,
 		typename = typename enable_if<
 			is_void<NextResult>::value
 		>::type>
 	void except(
-		const Except /* ExceptVoidFunc */ except_func)
+		Except /* ExceptVoidFunc */ except_func)
 			{ then<void>(nullptr, except_func); };
 	/* Finally */
 	template <typename Finally>
 	Promise<Result> finally(
-		const Finally /* FinallyFunc */ finally_func)
-			{ return then<ThenFunc<Result>>(nullptr, nullptr, finally_func); };
+		Finally /* FinallyFunc */ finally_func)
+			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); };
+protected:
+	/* Get/set promise result */
+	void set_result(ensure_locked, const Result& value);
+	const Result& get_result(ensure_locked);
 private:
-	/*
-	 * Stores the result so that we can avoid race conditions between binding
-	 * callbacks to the promise and resolving/rejecting the promise.
-	 */
-	Result result{};
-	/* Pass current value onwards if no 'next' callback */
+	Result result;
+	/* Helper functions to pass current value onwards if no 'next' callback */
+	template <typename NextResult,
+		typename = typename enable_if<is_same<Result, NextResult>::value>::type>
+	static const NextResult& forward_result(const Result& result);
+	template <typename NextResult, int dummy = 0,
+		typename = typename enable_if<!is_same<Result, NextResult>::value>::type>
+	static const NextResult& forward_result(const Result& result);
 	template <typename NextResult>
-		NextResult next_default_value(const Result& value) const;
+	static Promise<NextResult> default_next(const Result& result);
+	template <typename NextResult>
+	static Promise<NextResult> default_except(exception_ptr& error);
+	static void default_finally();
 };
 
 /*** Utils ***/
@@ -410,21 +435,24 @@ namespace promise {
 
 /* Construct a resolved promise */
 
-Promise<nullptr_t> begin_chain();
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> resolved(Result&& result);
 
-template <typename Result>
-Promise<Result> resolved(Result const& result);
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> resolved(const Result& result);
 
 /* Construct a rejected promise */
 
-template <typename Result>
-Promise<Result> rejected(exception_ptr error);
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> rejected(exception_ptr error);
 
-template <typename Result>
-Promise<Result> rejected(const string& error);
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> rejected(const string& error);
 
 /*
  * Convert function to promise factory
+ *
+ * Result(Args...) => Promise<Result>(Args...)
  *
  * Takes function func and returns a new function which when invoked, returns a
  * promise and calls func.  The return value of func is used to resolve the
@@ -433,8 +461,8 @@ Promise<Result> rejected(const string& error);
  *
  * Since func returns synchronously, the promise factory will evaluate func
  * BEFORE returning.  This is not a magic way to make synchronous functions
- * asynchronous, it just makes useable in promise chains.  For a magic way to
- * make synchronous functions asynchronous, use std::thread or
+ * asynchronous, it just makes them useable in promise chains.  For a magic way
+ * to make synchronous functions asynchronous, use std::thread or
  * mark::promise::task.
  *
  * Returns nullptr iff func==nullptr
@@ -442,6 +470,8 @@ Promise<Result> rejected(const string& error);
 
 template <typename Result, typename... Args>
 using Factory = function<Promise<Result>(Args...)>;
+
+nullptr_t factory(nullptr_t);
 
 template <typename Result, typename... Args>
 Factory<Result, Args...> factory(Result (*func)(Args...));
@@ -461,7 +491,7 @@ Factory<Result, Args...> factory(function<Result(Args...)> func);
  * the promises.
  */
 template <typename... Result>
-Promise<tuple<Result...>> combine(Promise<Result>&&... promise);
+Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... promise);
 
 /*
  * Takes an iterable of homogenous promises and returns a single promise that
@@ -471,13 +501,13 @@ Promise<tuple<Result...>> combine(Promise<Result>&&... promise);
  * transforming the set into an vector containing the results of the promises.
  */
 
-template <typename It, typename Result = typename It::value_type::result_type>
+template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
 Promise<vector<Result>> combine(It first, It last, const size_t size);
 
-template <typename It, typename Result = typename It::value_type::result_type>
+template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
 Promise<vector<Result>> combine(It first, It last);
 
-template <typename List, typename Result = typename List::value_type::result_type>
+template <typename List, typename Result = typename remove_cvr<typename List::value_type::result_type>::type>
 Promise<vector<Result>> combine(List promises);
 
 }
