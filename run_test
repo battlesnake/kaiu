@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+declare -ri use_tmux=$(if [ "${TMUX_PANE:-}" ]; then echo 1; else echo 0; fi)
+
 if (( $# == 0 )); then
 	printf >&2 -- 'Test name(s) required'
 	exit
@@ -9,7 +11,7 @@ fi
 
 if [ "$1" == "--here" ]; then
 	shift
-else
+elif (( use_tmux )); then
 	tmux new-window -n 'Tests' "exec '$0' --here $(printf -- " '%s'" "$@")"
 	exit
 fi
@@ -34,41 +36,45 @@ function debug {(
 function memcheck {(
 	set +e
 	local test="$1" target="$2"
-	printf -- '\n\e[1mMemcheck (%s) [process output]\e[0m\n' "${test}"
-
-	function cleanup {
-		kill "$(cat "${valtmp}.pid")"
-		rm -f -- "${valtmp}".{fifo,pid}
-	}
-	trap cleanup EXIT
-
-	declare valtmp="$(mktemp -u)"
-
-	mkfifo "${valtmp}.fifo"
-
-	declare mainpid="${BASHPID}"
-
-	tmux split-window -dh "$(cat <<EOF
-		set +e
+	if (( use_tmux )); then
+		printf -- '\n\e[1mMemcheck (%s) [process output]\e[0m\n' "${test}"
 
 		function cleanup {
-			kill "${mainpid}"
+			kill "$(cat "${valtmp}.pid")"
+			rm -f -- "${valtmp}".{fifo,pid}
 		}
 		trap cleanup EXIT
 
-		echo "\$BASHPID" > '${valtmp}.pid'
+		declare valtmp="$(mktemp -u)"
 
-		printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
-		val-color < '${valtmp}.fifo'
+		mkfifo "${valtmp}.fifo"
 
-		printf >&2 '\n\e[1mDONE\e[0m\n'
+		declare mainpid="${BASHPID}"
 
-		read LINE
+		tmux split-window -dh "$(cat <<EOF
+			set +e
+
+			function cleanup {
+				kill "${mainpid}"
+			}
+			trap cleanup EXIT
+
+			echo "\$BASHPID" > '${valtmp}.pid'
+
+			printf -- '\n\e[1mMemcheck (%s) [valgrind output]\e[0m\n' "${test}"
+			val-color < '${valtmp}.fifo'
+
+			printf >&2 '\n\e[1mDONE\e[0m\n'
+
+			read LINE
 EOF
-	)"
+		)"
 
-	valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
-
+		valgrind --leak-check=yes --track-origins=yes --log-file="${valtmp}.fifo" "${target}"
+	else
+		printf -- '\n\e[1mMemcheck (%s) [all output]\e[0m\n' "${test}"
+		valgrind --leak-check=yes --track-origins=yes "${target}"
+	fi
 	printf >&2 '\n\e[1mDONE\e[0m\n'
 	read LINE
 )}
@@ -77,52 +83,63 @@ declare action='debug'
 declare -i page=0
 
 while (( $# )); do
+	declare arg="$1"
+	shift
 	# Action
-	case "$1" in
+	case "${arg}" in
 	page:) page=1
-		shift
 		continue
 		;;
 	nopage:) page=0
-		shift
 		continue
 		;;
 	run:) action='run'
-		export cxxextra="-O3 -w -march=native -mtune=native"
-		shift
+		export mode='release'
 		continue
 		;;
 	debug:) action='debug'
-		export cxxextra="-Og -Wall -g -DDEBUG"
-		shift
+		export mode='debug'
 		continue
 		;;
 	mem:) ;&
 	memcheck:) action='memcheck'
-		export cxxextra="-Og -Wall -g -DDEBUG"
-		shift
+		export mode='debug'
+		continue
+		;;
+	help:)
+		printf -- '\e[1mSyntax:\[0m ./%s ( command: | test-name )+\n' "$(basename "$0")"
+		printf -- '\e[1mCommands:\e[0m\n'
+		printf "  * %s\n" \
+			"run - build with optimization and run" \
+			"debug - build without optimization and run with gdb" \
+			"mem/memcheck - build without optimization and run with valgrind" \
+			"page - pipe build output through pager" \
+			"nopage - do not pipe build output through pager"
 		continue
 		;;
 	esac
 	# Test
-	declare test="$1"
-	shift
+	declare test="${arg}"
 	declare target="test/${test}"
 	rm -f -- "${target}"
 	printf -- '\n\e[1mBuild (%s)\e[0m\n' "${test}"
-	export o_number
+	export o_number mode
 	if make "${target}" | ( if (( page )); then less -R; else cat; fi ) && [ -e "${target}" ]; then
 		printf -- '\n\e[36mOutput size: %sk\e[0m\n' "$(printf -- '%s/1024\n' "$(stat -c %s "${target}")" | bc)"
-		case "${action}" in
-		run)
-			run "${test}" "${target}";;
-		debug)
-			debug "${test}" "${target}";;
-		memcheck)
-			memcheck "${test}" "${target}";;
-		esac
+		if ! (
+			case "${action}" in
+			run)
+				run "${test}" "${target}";;
+			debug)
+				debug "${test}" "${target}";;
+			memcheck)
+				memcheck "${test}" "${target}";;
+			esac
+		); then
+			printf -- '\n\e[32;1mCommand failed: %s %s\e[0m\n' "${action}" "${test}"
+		fi
 	else
-		printf -- '\n\e[31;1mBuild failed (%s)\e[0m\n' "${test}"
+		printf -- '\n\e[31;1mBuild failed (%s) - aborting\e[0m\n' "${test}"
 		break
 	fi
 done

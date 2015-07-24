@@ -4,8 +4,8 @@ mode ?= debug
 
 show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-cc := g++ 2>&1 -fopenmp
-#cc := clang++
+define_cc_proxy = function cc_proxy { g++ 2>&1 -fopenmp "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; }
+cc := cc_proxy
 
 cc_base := -std=c++14
 ld_base := -lpthread
@@ -44,7 +44,8 @@ outdirs := test/ dep/ out/ obj/
 default: syntax
 
 syntax:
-	$(cc) $(cc_base) -Wall -fsyntax-only $(filter-out test_%, $(wildcard *.cpp)) | c++-color
+	@$(define_cc_proxy)
+	$(cc) $(cc_base) -Wall -fsyntax-only $(filter-out test_%, $(wildcard *.cpp))
 
 clean:
 	rm -rf -- $(outdirs)
@@ -79,12 +80,14 @@ $(test) $(dep) $(out) $(obj):
 # Object files and autodependencies
 
 $(obj)/%.o: %.cpp | $(obj) $(dep)
-	$(cc) $(cc_opts) $< -MMD -MF $(dep)/$*.d -MQ $@ -c -o $@ | c++-color || rm -f -- $@
+	@$(define_cc_proxy)
+	$(cc) $(cc_opts) $< -MMD -MF $(dep)/$*.d -MQ $@ -c -o $@
 
 # Projects
 
 $(out)/%: $(obj)/%.o | $(out)
-	$(cc) $(ld_opts) $^ -o $@ | c++-color || rm -f -- $@
+	@$(define_cc_proxy)
+	$(cc) $(ld_opts) $^ -o $@
 
 # Test dependencies
 
@@ -97,7 +100,8 @@ $(test)/task: $(obj)/promise.o $(obj)/decimal.o $(obj)/event_loop.o $(obj)/start
 # Test binaries
 
 $(test)/%: $(obj)/test_%.o $(obj)/%.o $(obj)/assertion.o | $(test)
-	$(cc) $(ld_opts) $^ -o $@ | c++-color || rm -f -- $@
+	@$(define_cc_proxy)
+	$(cc) $(ld_opts) $^ -o $@
 
 # Autodependencies
 
