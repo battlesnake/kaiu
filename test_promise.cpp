@@ -27,9 +27,12 @@ Assertions assert({
 	{ "FC", "Finalizer called" },
 	{ "EFJP", "Exception in finalizer results in rejected promise" },
 	{ "FCEF", "Finally handler called even on exception in previous finally handler" },
-	{ nullptr, "Promise combinators" },
+	{ nullptr, "Promise combinator (heterogenous)" },
 	{ "PCR", "Resolves correctly" },
 	{ "PCJ", "Rejects correctly" },
+	{ nullptr, "Promise combinator (homogenous)" },
+	{ "VCR", "Resolves correctly" },
+	{ "VCJ", "Rejects correctly" },
 });
 
 void do_async_nonblock(function<void()> op)
@@ -199,6 +202,39 @@ void static_combine_test()
 
 void dynamic_combine_test()
 {
+	const size_t count = 10;
+	function<size_t(const size_t)> func = [] (const size_t i) { return i; };
+	auto fac = promise::factory(func);
+	vector<Promise<size_t>> seq;
+	seq.reserve(count);
+	for (size_t i = 0; i < count; i++) {
+		seq.emplace_back(fac(i));
+	}
+	promise::combine(seq)
+		->then(
+			[] (const auto& result) {
+				bool pass = true;
+				for (size_t i = 0; i < count; i++) {
+					pass = pass && result[i] == i;
+				}
+				assert.expect(pass, true, "VCR");
+			},
+			[] (const auto& error) {
+				assert.fail("VCR");
+			});
+	seq.resize(0);
+	seq.emplace_back(promise::rejected<size_t>("These aren't the droids you're looking for"));
+	for (size_t i = 1; i < count; i++) {
+		seq.emplace_back(fac(i));
+	}
+	promise::combine(seq)
+		->then(
+			[] (const auto& result) {
+				assert.fail("VCJ");
+			},
+			[] (const auto& error) {
+				assert.pass("VCJ");
+			});
 }
 
 int main(int argc, char *argv[]) {
