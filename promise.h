@@ -8,7 +8,7 @@
 #include <vector>
 #include <type_traits>
 
-namespace mark {
+namespace kaiu {
 
 /*
  * Promise, inspired by the JavaScript Q library, Unlambda, and Haskell.
@@ -463,7 +463,7 @@ Promise<DResult> rejected(const string& error);
  * BEFORE returning.  This is not a magic way to make synchronous functions
  * asynchronous, it just makes them useable in promise chains.  For a magic way
  * to make synchronous functions asynchronous, use std::thread or
- * mark::promise::task.
+ * kaiu::promise::task.
  *
  * Returns nullptr iff func==nullptr
  */

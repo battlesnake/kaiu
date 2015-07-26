@@ -1,7 +1,7 @@
 #define scoped_counter_tcc
 #include "scoped_counter.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

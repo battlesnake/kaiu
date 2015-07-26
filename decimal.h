@@ -9,7 +9,7 @@
  * other stuff - hence base being fixed at 10 and there being no sign bit.
  */
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

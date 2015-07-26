@@ -5,7 +5,7 @@
 
 using namespace std;
 using namespace std::chrono;
-using namespace mark;
+using namespace kaiu;
 
 Assertions assert({
 	{ nullptr, "Construction & output" },

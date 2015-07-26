@@ -5,7 +5,7 @@
 #include "assertion.h"
 #include "event_loop.h"
 
-using namespace mark;
+using namespace kaiu;
 using namespace chrono_literals;
 
 Assertions assert({

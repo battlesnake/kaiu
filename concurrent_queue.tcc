@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include "concurrent_queue.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

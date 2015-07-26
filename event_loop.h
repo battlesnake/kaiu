@@ -12,7 +12,7 @@
 #include "starter_pistol.h"
 #include "scoped_counter.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

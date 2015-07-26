@@ -7,7 +7,7 @@
 #include "functional.h"
 
 using namespace std;
-using namespace mark;
+using namespace kaiu;
 
 Assertions assert({
 	{ nullptr, "Basic currying" },

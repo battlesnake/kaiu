@@ -1,6 +1,6 @@
 #include "starter_pistol.h"
 
-namespace mark {
+namespace kaiu {
 
 StarterPistol::StarterPistol(const int racers) :
 	racers(racers)

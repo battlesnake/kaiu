@@ -1,7 +1,7 @@
 #include <stdexcept>
 #include "promise.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

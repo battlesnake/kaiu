@@ -5,7 +5,7 @@
 #include "tuple_iteration.h"
 #include "promise.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

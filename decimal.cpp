@@ -4,7 +4,7 @@
 #include <algorithm>
 #include "decimal.h"
 
-namespace mark {
+namespace kaiu {
 
 decimal::decimal() :
 	digits{0}

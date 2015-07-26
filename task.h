@@ -5,7 +5,7 @@
 #include "promise.h"
 #include "functional.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

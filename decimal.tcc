@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include "decimal.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

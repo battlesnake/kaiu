@@ -1,7 +1,7 @@
 #define functional_tcc
 #include "functional.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 

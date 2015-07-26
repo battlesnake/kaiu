@@ -4,7 +4,7 @@
 #include <algorithm>
 #include "assertion.h"
 
-namespace mark {
+namespace kaiu {
 
 using namespace std;
 
