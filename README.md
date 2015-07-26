@@ -7,7 +7,10 @@ Promises, parallel event-loops, segregated thread pools, functional fun, ...
 
 All contents of this library are located within the namespace `kaiu`.
 
-Each component has its own README:
+Documentation
+-------------
+
+The header files are commented.  Some components have their own README:
 
  * (Promise)[https://github.com/battlesnake/kaiu/blob/master/promise.md]
 
@@ -21,3 +24,27 @@ Each component has its own README:
 
  * (Tuple iteration)[https://github.com/battlesnake/kaiu/blob/master/tuple_iteration.md]
 
+Building / running tests
+------------------------
+
+Requires g++, developed using version 5.2.0.
+
+To build and run the tests:
+
+	make tests
+
+To build in release-mode (optimizations enabled, warnings disabled):
+
+	make tests mode=release
+
+To run a particular test, use the runner:
+
+	./run_test [commands]
+
+For a description of the commands, run:
+
+	./run_test help:
+
+For example, to build and run the promise test a leak check with valgrind:
+
+	./run_test mem: promise
