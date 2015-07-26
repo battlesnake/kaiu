@@ -127,6 +127,10 @@ while (( $# )); do
 		export mode='release'
 		continue
 		;;
+	rund:) action='run'
+		export mode='debug'
+		continue
+		;;
 	debug:) action='debug'
 		export mode='debug'
 		continue
@@ -145,6 +149,7 @@ while (( $# )); do
 		printf -- '\e[1mCommands:\e[0m\n'
 		printf "  * %s\n" \
 			"run - build with optimization and run" \
+			"rund - build without optimization and run" \
 			"debug - build without optimization and run with gdb" \
 			"mem/memcheck - build without optimization and run with valgrind" \
 			"page - pipe build output through pager" \

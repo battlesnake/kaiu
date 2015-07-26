@@ -16,7 +16,7 @@ UnboundTask<Result, Args...> task(
 		Promise<Result> promise;
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
-			if (reaction_pool == EventLoopPool::same) {
+			if (reaction_pool == EventLoopPool::same || reaction_pool == current_pool()) {
 				factory(args...)->forward_to(promise);
 			} else {
 				auto result = factory(args...);
@@ -33,5 +33,39 @@ UnboundTask<Result, Args...> task(
 }
 
 }
+
+#ifdef enable_monads
+/*** Task monad operators ***/
+
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_curried_function<DFrom>::value &&
+	is_curried_function<DTo>::value &&
+	DFrom::arity == 0 &&
+	DTo::arity == 1 &&
+	is_promise<typename DFrom::result_type>::value &&
+	is_promise<typename DTo::result_type>::value,
+		typename DFrom::result_type>::type
+operator | (From&& l, To&& r)
+{
+	return l()->then(forward<To>(r));
+}
+
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_promise<DFrom>::value &&
+	is_curried_function<DTo>::value &&
+	DTo::arity == 1 &&
+	is_promise<typename DTo::result_type>::value,
+		typename DTo::result_type>::type
+operator | (From&& l, To&& r)
+{
+	return l->then(forward<To>(r));
+}
+#endif
 
 }

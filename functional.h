@@ -2,6 +2,7 @@
 #include <functional>
 #include <tuple>
 #include <utility>
+#include <type_traits>
 
 namespace mark {
 
@@ -37,6 +38,9 @@ struct CurriedFunction {
 private:
 	using ArgsTuple = tuple<CurriedArgs...>;
 public:
+	static const auto is_curried_function = true;
+	using result_type = Result;
+	static constexpr auto arity = Arity - sizeof...(CurriedArgs);
 	CurriedFunction(Functor func);
 	CurriedFunction(Functor func, const ArgsTuple& curried_args);
 	/*
@@ -92,6 +96,17 @@ private:
 
 }
 
+template <typename T>
+struct is_curried_function {
+private:
+	template <typename U>
+	static integral_constant<bool, U::is_curried_function> check(int);
+	template <typename>
+	static std::false_type check(...);
+public:
+	static constexpr auto value = decltype(check<T>(0))::value;
+};
+
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 using Curried = detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>;
 
@@ -108,6 +123,34 @@ Curried<Result, Arity, Functor, CurriedArgs...>
 /* Call a function using arguments stored in a tuple */
 template <typename Result, typename Functor, typename Args>
 Result Invoke(Functor func, Args args);
+
+#ifdef enable_monads
+/***
+ * Monad operator
+ *
+ * Adds operator such that;
+ *   "T&& t , U(T) u" ⇒ "u(t)"
+ *
+ * Giving us this syntax for chain operations:
+ *   "T&& t , U(T) u , V(U) v" ⇒ "v(u(t))"     
+ *
+ * Given the requirements for left side <t> and right-side <u>:
+ *  - <u> is a curry-wrapped function
+ *  - <u> takes one parameter (after any currying)
+ *
+ * You MUST compile with '-Wunused-value', in order to detect when the operator
+ * has not been chosen by the compiler (since a no-op default will silently be
+ * used in its place, triggering an unused-value warning)
+ */
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_curried_function<DTo>::value &&
+	DTo::arity == 1,
+		typename DTo::result_type>::type
+	operator ,(From&& from, To to);
+#endif
 
 }
 

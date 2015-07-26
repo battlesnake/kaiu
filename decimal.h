@@ -3,7 +3,6 @@
 #include <string>
 #include <type_traits>
 #include <limits>
-#include <omp.h>
 
 /*
  * Not intended for production use, just something to provide load for testing

@@ -160,4 +160,18 @@ Result Invoke(Functor func, Args args)
 		(func, forward<Args>(args));
 }
 
+#ifdef enable_monads
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_curried_function<DTo>::value &&
+	DTo::arity == 1,
+		typename DTo::result_type>::type
+	operator ,(From&& from, To to)
+{
+	return to(forward<From>(from));
+}
+#endif
+
 }

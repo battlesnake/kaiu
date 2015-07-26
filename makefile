@@ -41,7 +41,7 @@ outdirs := test/ dep/ out/ obj/
 
 .SHELLFLAGS: -euo pipefail -c
 
-default: syntax
+default: tests
 
 syntax:
 	@$(define_cc_proxy)
@@ -56,6 +56,12 @@ tests: $(tests:%=test/%)
 	@for test in $^; do
 		printf -- "Running test: '%s'\n" "$${test}"
 		"$${test}" --test-silent-if-perfect
+	done
+
+tests-loud: $(tests:%=test/%)
+	@for test in $^; do
+		printf -- "Running test: '%s'\n" "$${test}"
+		"$${test}"
 	done
 
 # Fun
@@ -95,6 +101,8 @@ $(test)/promise:
 $(test)/event_loop: $(obj)/starter_pistol.o
 
 $(test)/task: $(obj)/promise.o $(obj)/decimal.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+
+$(test)/functional: $(obj)/promise.o $(obj)/task.o $(obj)/event_loop.o $(obj)/starter_pistol.o
 
 # Test binaries
 

@@ -85,6 +85,8 @@ private:
 
 /*
  * Non-threaded event loop which exits when no more events are left to process
+ *
+ * "pool" parameter ignored
  */
 class SynchronousEventLoop : public virtual EventLoop {
 public:

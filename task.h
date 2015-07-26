@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <type_traits>
 #include "event_loop.h"
 #include "promise.h"
 #include "functional.h"
@@ -69,6 +70,51 @@ UnboundTask<Result, Args...> task(
 	const EventLoopPool reaction_pool = EventLoopPool::same);
 
 }
+
+#ifdef enable_monads
+/***
+ * Task monad operators
+ *
+ *
+ * Task1&& <t> | Task2&& <u, ...
+ *
+ * Requires:
+ *  - t, u are curried promise factories
+ *  - t has arity 0
+ *  - u has arity 1
+ *
+ *
+ * Promise&& t | Task&& u, ...
+ *
+ * Requires:
+ *  - <u> is a curried promise factory
+ *  - <u> has arity 1
+ */
+
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_curried_function<DFrom>::value &&
+	is_curried_function<DTo>::value &&
+	DFrom::arity == 0 &&
+	DTo::arity == 1 &&
+	is_promise<typename DFrom::result_type>::value &&
+	is_promise<typename DTo::result_type>::value,
+		typename DFrom::result_type>::type
+operator | (From&& l, To&& r);
+
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_promise<DFrom>::value &&
+	is_curried_function<DTo>::value &&
+	DTo::arity == 1 &&
+	is_promise<typename DTo::result_type>::value,
+		typename DTo::result_type>::type
+operator | (From&& l, To&& r);
+#endif
 
 }
 
