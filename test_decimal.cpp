@@ -34,6 +34,7 @@ Assertions assert({
 
 int main(int argc, char *argv[])
 {
+	auto printer = assert.printer();
 	assert.expect(string(decimal(0)), "0", "0is");
 	assert.expect(string(decimal(1)), "1", "1is");
 	assert.expect(string(decimal(32)), "32", "32is");

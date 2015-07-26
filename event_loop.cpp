@@ -8,11 +8,6 @@ using namespace std;
 
 thread_local EventLoopPool this_pool = EventLoopPool::unknown;
 
-EventLoopPool current_pool()
-{
-	return this_pool;
-}
-
 /*** EventLoop ***/
 
 EventLoop::EventLoop(const EventLoopPool defaultPool)
@@ -103,7 +98,12 @@ void ParallelEventLoop::do_threaded_loop(const EventLoopPool pool)
 
 void ParallelEventLoop::push(const EventLoopPool pool, const EventFunc& event)
 {
-	ConcurrentQueue<Event>& queue = queues.at(pool);
+	/* const-param antipattern */
+	auto _pool = pool == EventLoopPool::same ? current_pool() : pool;
+	if (int(_pool) <= 0) {
+		throw invalid_argument("Invalid thread pool");
+	}
+	ConcurrentQueue<Event>& queue = queues.at(_pool);
 	queue.emplace(new EventFunc(event));
 }
 
@@ -187,6 +187,11 @@ ParallelEventLoop::~ParallelEventLoop()
 	for (auto& thread : threads) {
 		thread.join();
 	}
+}
+
+EventLoopPool ParallelEventLoop::current_pool()
+{
+	return this_pool;
 }
 
 }

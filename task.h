@@ -71,7 +71,7 @@ UnboundTask<Result, Args...> task(
 
 }
 
-#ifdef enable_monads
+#ifdef enable_task_monads
 /***
  * Task monad operators
  *

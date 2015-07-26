@@ -499,6 +499,9 @@ Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... pro
  *
  * Think of this as a map() operation over a homogenous ordered set of promises,
  * transforming the set into an vector containing the results of the promises.
+ *
+ * Using std::vector for result rather than std::array, as the latter does not
+ * support move semantics.
  */
 
 template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>

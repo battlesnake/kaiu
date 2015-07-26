@@ -42,12 +42,6 @@ struct EventLoopPoolHash
 };
 
 /*
- * Get which pool the current thread is in.  Returns unknown if not a
- * ParallelEventLoop-pooled thread, e.g. the main thread.
- */
-EventLoopPool current_pool();
-
-/*
  * Base class for event loops
  */
 class EventLoop {
@@ -59,20 +53,6 @@ public:
 	 */
 	virtual void push(const EventLoopPool pool, const EventFunc& event) = 0;
 	void push(const EventFunc& event) { push(defaultPool, event); };
-	/*
-	 * Usage: loop.push(task)
-	 * Where exists:
-	 *   Promise<Result> Task::operator ()(EventLoop& loop, Args...)
-	 */
-	template <typename Task, typename... Args>
-		decltype(Task::operator ()(Args{}...)) push(Task task, Args&&... args)
-			{ return task(*this, forward<Args>(args)...); };
-	/*
-	 * Submit events / tasks using << operator, as used with streams.
-	 */
-	template <typename T>
-		EventLoop& operator <<(T arg)
-			{ push(arg); return *this; };
 protected:
 	using Event = unique_ptr<EventFunc>;
 	EventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
@@ -127,6 +107,11 @@ public:
 	 * the wait.
 	 */
 	void join(function<void(exception_ptr&)> handler = nullptr);
+	/*
+	 * Get which pool the current thread is in.  Returns unknown if not a
+	 * ParallelEventLoop-pooled thread, e.g. the application's main thread.
+	 */
+	static EventLoopPool current_pool();
 protected:
 	virtual Event next(const EventLoopPool pool) override;
 private:
@@ -147,7 +132,7 @@ private:
 	 * Count of threads that are not idle (idle = waiting for events)
 	 *
 	 * Triggers a condition variable whenever the number if idle threads
-	 * changes.  Is als triggered by this class when an exception is queued.
+	 * changes.  Is also triggered by this class when an exception is queued.
 	 */
 	ScopedCounter<int> threads_not_idle_counter;
 };

@@ -46,7 +46,7 @@ int Assertions::print(const int argc, char const * const argv[])
 	return _print(lock, !quiet);
 }
 
-void Assertions::set(const string& code, const State state, const string& note)
+void Assertions::set(const string& code, const result state, const string& note)
 {
 	lock_guard<mutex> lock(mx);
 	_set(lock, code, state, note);
@@ -68,7 +68,7 @@ void Assertions::skip(const string& code, const string& note)
 	set(code, skipped, note);
 }
 
-void Assertions::_set(ensure_locked, const string& code, const State state, const string& note)
+void Assertions::_set(ensure_locked, const string& code, const result state, const string& note)
 {
 	try {
 		auto& target = list.at(code);
@@ -87,7 +87,7 @@ int Assertions::_print(ensure_locked, bool always)
 	printed = true;
 	stringstream out;
 	stringstream fail_codes;
-	unordered_map<State, size_t, hash<int>> count;
+	unordered_map<result, size_t, hash<int>> count;
 	for (const auto& string : strings) {
 		const auto& code = string.first;
 		const auto& title = string.second;

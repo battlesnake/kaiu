@@ -168,6 +168,7 @@ void calculateOneFactorial()
 
 int main(int argc, char *argv[])
 {
+	auto printer = assert.printer();
 	calculateMultipleFactorials();
 	calculateOneFactorial();
 	this_thread::sleep_for(100ms);

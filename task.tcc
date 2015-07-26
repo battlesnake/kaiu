@@ -16,7 +16,7 @@ UnboundTask<Result, Args...> task(
 		Promise<Result> promise;
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
-			if (reaction_pool == EventLoopPool::same || reaction_pool == current_pool()) {
+			if (reaction_pool == EventLoopPool::same || reaction_pool == ParallelEventLoop::current_pool()) {
 				factory(args...)->forward_to(promise);
 			} else {
 				auto result = factory(args...);
@@ -34,7 +34,7 @@ UnboundTask<Result, Args...> task(
 
 }
 
-#ifdef enable_monads
+#ifdef enable_task_monads
 /*** Task monad operators ***/
 
 template <typename From, typename To,

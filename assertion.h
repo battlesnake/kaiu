@@ -11,12 +11,12 @@ using namespace std;
 
 class Assertions {
 public:
-	enum State { unknown, skipped, passed, failed };
+	enum result { unknown, skipped, passed, failed };
 	Assertions() = delete;
 	Assertions(const Assertions&) = delete;
 	Assertions(const vector<pair<const char *, const char *>>& strings);
 	~Assertions();
-	void set(const string& code, const State state, const string& note = "");
+	void set(const string& code, const result state, const string& note = "");
 	void pass(const string& code, const string& note = "");
 	void fail(const string& code, const string& note = "");
 	void skip(const string& code, const string& note = "");
@@ -39,9 +39,9 @@ private:
 	mutex mx;
 	bool printed;
 	const vector<pair<const char *, const char *>> strings;
-	unordered_map<string, pair<State, string>> list;
+	unordered_map<string, pair<result, string>> list;
 	int _print(ensure_locked, bool always);
-	void _set(ensure_locked, const string& code, const State state, const string& note);
+	void _set(ensure_locked, const string& code, const result state, const string& note);
 };
 
 template <typename Actual, typename Expect>

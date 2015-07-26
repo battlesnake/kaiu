@@ -1,4 +1,5 @@
 #define enable_monads
+#define enable_task_monads
 #include <iostream>
 #include <functional>
 #include <math.h>
