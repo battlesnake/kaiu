@@ -30,7 +30,7 @@ Now let's convert it to a promise factory.  This still blocks, but returns a
 `Promise<vector<string>>`:
 
 	auto read_lines_fac = promise::factory(read_lines_func);
-	
+
 Now we convert the promise factory to a task.  The task will do slow, blocking
 I/O in a "io_local" worker thread, immediately returning a
 `Promise<vector<string>>` without blocking the calling thread.  The callbacks on
@@ -63,9 +63,11 @@ they are a good idea in production code.  There is a demonstration in the
 unit-test for `functional` (test_functional.cpp).
 
 	#include <iostream>
+	#include <functional>
 	#define enable_task_monads
 	#include "task.h"
 
+	using namespace std;
 	using namespace kaiu;
 
 	ParallelEventLoop loop{ {
@@ -82,17 +84,17 @@ unit-test for `functional` (test_functional.cpp).
 	}
 
 	Promise<void *> log_data(const string s, int x) {
-		std::cout << x << " " << s << std::endl;
+		cout << x << " " << s << endl;
 	}
 
-	auto add = task(add_fac, EventLoopPool::calculation, EventLoopPool::reactor);
-	auto square = task(square_fac, EventLoopPool::calculation, EventLoopPool::reactor);
-	auto log = task(log_data, EventLoopPool::reactor);
+	auto add = task(add_fac, EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
+	auto square = task(square_fac, EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
+	auto log = task(log_data, EventLoopPool::reactor) << ref(loop);
 
 	int main(int argc, char **argv)
 	{
 		/* Monads and currying: outputs "101 dalmations" */
-		3 | add_fac << 7 | square_fac | add_fac << 1 | log_data << "dalmations";
+		3 | add << 7 | square | add << 1 | log << "dalmations";
 		/* The above is the same as: */
-		log_data("dalmations", add_fac(1, square_fac(add_fac(7, 3))));
+		log("dalmations", add(1, square(add(7, 3))));
 	}
