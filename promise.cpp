@@ -18,6 +18,7 @@ PromiseStateBase::PromiseStateBase()
 {
 }
 
+#if defined(DEBUG)
 PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
 	lock_guard<mutex> lock(state_lock);
@@ -28,6 +29,7 @@ PromiseStateBase::~PromiseStateBase() noexcept(false)
 		throw logic_error("Promise destructor called on bound but uncompleted promise");
 	}
 }
+#endif
 
 PromiseStateBase::PromiseStateBase(const nullptr_t dummy, exception_ptr error)
 {

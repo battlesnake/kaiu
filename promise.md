@@ -19,6 +19,17 @@ They can be used for non-blocking asynchronous flow control, for lazy
 evaluation, and to guarantee finalization across scopes (i.e. where RAII
 finalizers cannot be used).
 
+The `Promise` class is actually a proxy to `PromiseState`, wrapping it in a
+`shared_ptr`.  Hence, the `Promise` objects can be passed around, copied, moved,
+destroyed as if they were just `shared_ptr`s.  The `Promise` wrapper just
+provides some useful constructors, and automatically removes
+const/volatile/reference qualifiers from the (possibly inferred) promise type.
+
+The underlying `PromiseState` object is not moveable or copyable.  It should
+really be an inner class of `Promise` (with single then+finish methods and the
+rest as proxy methods on `Promise`), but that would make the header file
+considerably less readable.
+
 Examples
 --------
 
@@ -103,7 +114,7 @@ converted to an exception).
 		->except(handle_error_when_save_failed)
 		->finally(finalizer)
 		->then(more_work)
-		->finally(another_finalizer);
+		->finish(another_finalizer);
 
 Details
 -------
@@ -118,6 +129,11 @@ Details
 	// Same as then(nullptr, nullptr, finalizer)
 	finally(finalizer)
 
+	// Same as finally(finalizer)->finish()
+	finish(finalizer)
+
+	finish()
+
 When a promise is resolved, `then` is called, followed by `finalizer`.  When a
 promise is rejected,  `handler` is called, followed by `finalizer`.
 
@@ -126,8 +142,8 @@ The result of `then`, `except`, `finally` is a new promise.
 If `next` throws, the resulting promise will be rejected with the thrown
 exception.  If a promise is rejected, but has no `handler`, the promise returned
 by `then` will be rejected with the original exception - so exceptions propagate
-down promise chains.  If `handler` throws, the resulting promise is rejected
-with the caught exception.
+down promise chains until they are handled.  If `handler` throws, the resulting
+promise is rejected with the caught exception.
 
 `finalizer` will always be called, even if `next` or `handler` throws.  If
 `finalizer` throws, the resulting promise will be rejected with the exception
@@ -141,7 +157,7 @@ thrown by `finalizer`, **even if** `next` or `handler` also threw.
    (albeit a different instance).  The promise returned by `next` will have its
    result (resolution/rejection) forwarded to the promise returned by `then`.
 
- * Void: Ends promise cain.
+ * Void: Ends promise chain.
 
  * Throw: Promise returned by `then` is rejected.
 
@@ -153,7 +169,8 @@ For `Promise<X>::then(next)`, `next` has one of the following signatures
 	void next(X& value)
 
 `handler` may return any of the same types as `next`, resulting in the next
-promise being resolved to that value.  `handler` may also throw or re-throw.
+promise being resolved to that value.  `handler` may also throw or re-throw.  If
+`handler` does not have a return value, it will end the promise chain.
 
 For `Promise<X>::except(handler)`, `handler` has one of the following signatures
 
@@ -167,6 +184,11 @@ If using `then(next, handler [, finally])` then `next` and `handler` must have
 the same return type, i.e. both have return type "promise" (`Promise<T>`) or both
 have return type "value" (`T`), or both return void (terminating the promise
 chain).
+
+`finish` is used to explicitly terminate a promise chain, to prevent leaking
+promises.  `finish(finalizer)` is a shorthand for `finally` followed by
+`finish`.  If the last call on a promise chain is a `then` or an `except`, where
+the result type is void, the promise chain is implicitly ended.
 
 Promise factories
 -----------------
@@ -249,3 +271,31 @@ Promise result types: identical
 					assert(string(error.what()) == string("Oops"));
 				}
 			});
+
+Gotchas
+-------
+
+### Non-copyable result, [] (const volatile auto & arg) { }
+
+This doesn't work:
+
+	promise::resolved(make_unique<int>(1))
+		->then([] (auto ptr) {
+		});
+
+Recall that `auto` in the context of lambda parameters does not produce const,
+volatile, or reference types - these qualifiers must be specified explicitly.
+
+Typically, you will want to use `[] (auto& arg)` or `[] (const auto& arg)` in
+order to avoid un-necessary copying.  When using `auto&`, it is safe to `move`
+the value elsewhere if desired.
+
+	promise::resolved(make_unique<int>(1))
+		->then([] (auto& ptr) {
+			the_ptr = move(ptr);
+		});
+
+### Leaks
+
+Remember to terminate promise chains, either with a `then` or `except` that
+returns void, or with a `finish`.

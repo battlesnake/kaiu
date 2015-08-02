@@ -12,29 +12,29 @@ using namespace std;
 /*** PromiseState ***/
 
 template <typename Result>
-PromiseState<Result>::PromiseState(const Result& result) :
+PromiseState<Result>::PromiseState(Result&& result) :
 	PromiseStateBase()
 {
-	resolve(result);
+	resolve(forward<Result>(result));
 }
 
 template <typename Result>
-void PromiseState<Result>::set_result(ensure_locked lock, const Result& value)
+void PromiseState<Result>::set_result(ensure_locked lock, Result&& value)
 {
-	result = value;
+	result = move(value);
 }
 
 template <typename Result>
-const Result& PromiseState<Result>::get_result(ensure_locked lock)
+Result& PromiseState<Result>::get_result(ensure_locked lock)
 {
 	return result;
 }
 
 template <typename Result>
-void PromiseState<Result>::resolve(const Result& result)
+void PromiseState<Result>::resolve(Result&& result)
 {
 	lock_guard<mutex> lock(state_lock);
-	set_result(lock, result);
+	set_result(lock, forward<Result>(result));
 	set_state(lock, promise_state::resolved);
 }
 
@@ -43,7 +43,7 @@ void PromiseState<Result>::forward_to(Promise<Result> next)
 {
 	lock_guard<mutex> lock(state_lock);
 	auto resolve = [next, this] (ensure_locked lock) {
-		next->resolve(get_result(lock));
+		next->resolve(move(get_result(lock)));
 	};
 	auto reject = [next, this] (ensure_locked lock) {
 		next->reject(get_error(lock));
@@ -141,7 +141,7 @@ void PromiseState<Result>::then(
 	const Except except_func,
 	const Finally finally_func)
 {
-	NextFunc<nullptr_t> then_forward = [next_func] (const Result& result) {
+	NextFunc<nullptr_t> then_forward = [next_func] (Result& result) {
 		if (NextVoidFunc(next_func) != nullptr) {
 			next_func(result);
 		}
@@ -159,21 +159,21 @@ void PromiseState<Result>::then(
 
 template <typename Result>
 template <typename NextResult, typename>
-const NextResult& PromiseState<Result>::forward_result(const Result& result)
+NextResult&& PromiseState<Result>::forward_result(Result& result)
 {
-	return result;
+	return static_cast<Result&&>(result);
 }
 
 template <typename Result>
 template <typename NextResult, int dummy, typename>
-const NextResult& PromiseState<Result>::forward_result(const Result& result)
+NextResult&& PromiseState<Result>::forward_result(Result& result)
 {
 	throw new logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
 }
 
 template <typename Result>
 template <typename NextResult>
-Promise<NextResult> PromiseState<Result>::default_next(const Result& result)
+Promise<NextResult> PromiseState<Result>::default_next(Result& result)
 {
 	return Promise<NextResult>(forward_result<NextResult>(result));
 }
@@ -251,12 +251,6 @@ Promise<Result>::Promise(DResult&& result) :
 {
 }
 
-template <typename Result>
-Promise<Result>::Promise(const DResult& result) :
-	Promise(DResult(result))
-{
-}
-
 /* Reject constructors */
 
 template <typename Result>
@@ -280,12 +274,6 @@ template <typename Result, typename DResult>
 Promise<DResult> resolved(Result&& result)
 {
 	return Promise<Result>(forward<Result>(result));
-}
-
-template <typename Result, typename DResult>
-Promise<DResult> resolved(const Result& result)
-{
-	return Promise<Result>(result);
 }
 
 template <typename Result, typename DResult>
@@ -325,7 +313,7 @@ Factory<Result, Args...> factory(function<Result(Args...)> func)
 	}
 }
 
-/*** Combine multiple promises into one promise ***/
+/*** Combine multiple heterogenous promises into one promise ***/
 
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
@@ -336,12 +324,12 @@ struct HeterogenousCombineState {
 	size_t remaining = tuple_size<NextResult>::value;
 	bool failed = false;
 	template <typename Result, const size_t index>
-	void next(const Result& result) {
+	void next(Result& result) {
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
-		get<index>(results) = result;
+		get<index>(results) = move(result);
 	};
 	void handler(exception_ptr& error) {
 		{
@@ -396,6 +384,8 @@ Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... pro
 	return state->nextPromise;
 }
 
+/*** Combine multiple homogenous promises into one promise ***/
+
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
 struct HomogenousCombineState {
@@ -408,12 +398,12 @@ struct HomogenousCombineState {
 		results(count), remaining(count)
 			{ };
 	using Result = NextResult;
-	void next(const size_t index, const Result& result) {
+	void next(const size_t index, Result& result) {
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
-		results[index] = result;
+		results[index] = move(result);
 	};
 	void handler(exception_ptr& error) {
 		{

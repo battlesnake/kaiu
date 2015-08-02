@@ -33,6 +33,10 @@ Assertions assert({
 	{ nullptr, "Promise combinator (homogenous)" },
 	{ "VCR", "Resolves correctly" },
 	{ "VCJ", "Rejects correctly" },
+	{ nullptr, "Efficiency" },
+	{ "NC", "Copy-free promise chaining" },
+	{ "NCP", "Copy-free heterogenous combinator" },
+	{ "NCV", "Copy-free homogenous combinator" },
 });
 
 void do_async_nonblock(function<void()> op)
@@ -237,10 +241,53 @@ void dynamic_combine_test()
 			});
 }
 
+void efficiency_test()
+{
+	{
+		promise::resolved(true)
+			->then([] (bool result) {
+				return make_unique<int>(42);
+			})
+			->except([] (auto e) {
+				assert.fail("NC");
+				rethrow_exception(e);
+				return unique_ptr<int>(nullptr);
+			})
+			->finally([] () {
+			})
+			->then([] (auto& ptr) {
+				assert.expect(*ptr, 42, "NC");
+			});
+	}
+	{
+		promise::combine(
+			promise::resolved(make_unique<int>(1)),
+			promise::resolved(make_unique<int>(2)))
+			->then([] (auto& result) {
+				assert.expect(
+					*get<0>(result) == 1 && *get<1>(result) == 2, true,
+					"NCP");
+			});
+	}
+	{
+		vector<Promise<unique_ptr<int>>> v;
+		v.emplace_back(make_unique<int>(1));
+		v.emplace_back(make_unique<int>(2));
+		promise::combine(v)
+			->then([] (auto& result) {
+				assert.expect(
+					result.size() == 2 &&
+					*result[0] == 1 && *result[1] == 2, true,
+					"NCV");
+			});
+	}
+}
+
 int main(int argc, char *argv[]) {
 	auto printer = assert.printer();
 	flow_test();
 	static_combine_test();
 	dynamic_combine_test();
+	efficiency_test();
 	return assert.print(argc, argv);
 }

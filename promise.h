@@ -163,7 +163,6 @@ public:
 	Promise();
 	/* Resolved promise */
 	Promise(DResult&& result);
-	Promise(DResult const& result);
 	/* Rejected promise */
 	Promise(const nullptr_t dummy, exception_ptr error);
 	Promise(const nullptr_t dummy, const string& error);
@@ -207,8 +206,10 @@ public:
 	/* Construct a rejected promise */
 	PromiseStateBase(const nullptr_t dummy, exception_ptr error);
 	PromiseStateBase(const nullptr_t dummy, const string& error);
+#if defined(DEBUG)
 	/* Destructor */
 	~PromiseStateBase() noexcept(false);
+#endif
 	/* Make terminator */
 	void finish();
 protected:
@@ -307,9 +308,9 @@ public:
 	static_assert(
 		is_same<Result, typename remove_cvr<Result>::type>::value,
 		"Type parameter for promise internal state must not be cv-qualified or a reference");
-	/* "then" and "except" returning new value to next promise */
+	/* "then" and "except" returning new value or next promise */
 	template <typename NextResult = Result>
-		using NextFunc = function<NextResult(const Result&)>;
+		using NextFunc = function<NextResult(Result&)>;
 	template <typename NextResult = Result>
 		using ExceptFunc = function<NextResult(exception_ptr&)>;
 	/* "then" and "except" ending promise chain */
@@ -324,16 +325,16 @@ public:
 	PromiseState(PromiseState<Result>&&) = delete;
 	PromiseState(const PromiseState<Result>&) = delete;
 	/* Construct an immediately resolved */
-	PromiseState(const Result& result);
+	PromiseState(Result&& result);
 	/* Resolve */
-	void resolve(const Result& result);
+	void resolve(Result&& result);
 	/* Reject */
 	using PromiseStateBase::reject;
 	/* Forwards the result of this promise to another promise */
 	void forward_to(Promise<Result> next);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
-	using ThenResult = typename result_of<Next(Result&&)>::type;
+	using ThenResult = typename result_of<Next(Result&)>::type;
 	template <
 		typename Next,
 		typename NextResult = ThenResult<Next>,
@@ -410,21 +411,26 @@ public:
 	Promise<Result> finally(
 		Finally /* FinallyFunc */ finally_func)
 			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); };
+	/* Make terminator with finalizer */
+	template <typename Finally>
+	void finish(Finally /* FinallyFunc */ finally_func)
+		{ finally(finally_func)->finish(); };
+	using PromiseStateBase::finish;
 protected:
 	/* Get/set promise result */
-	void set_result(ensure_locked, const Result& value);
-	const Result& get_result(ensure_locked);
+	void set_result(ensure_locked, Result&& value);
+	Result& get_result(ensure_locked);
 private:
 	Result result;
 	/* Helper functions to pass current value onwards if no 'next' callback */
 	template <typename NextResult,
 		typename = typename enable_if<is_same<Result, NextResult>::value>::type>
-	static const NextResult& forward_result(const Result& result);
+	static NextResult&& forward_result(Result& result);
 	template <typename NextResult, int dummy = 0,
 		typename = typename enable_if<!is_same<Result, NextResult>::value>::type>
-	static const NextResult& forward_result(const Result& result);
+	static NextResult&& forward_result(Result& result);
 	template <typename NextResult>
-	static Promise<NextResult> default_next(const Result& result);
+	static Promise<NextResult> default_next(Result& result);
 	template <typename NextResult>
 	static Promise<NextResult> default_except(exception_ptr& error);
 	static void default_finally();
@@ -437,9 +443,6 @@ namespace promise {
 
 template <typename Result, typename DResult = typename remove_cvr<Result>::type>
 Promise<DResult> resolved(Result&& result);
-
-template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> resolved(const Result& result);
 
 /* Construct a rejected promise */
 

@@ -4,14 +4,14 @@ mode ?= debug
 
 show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-define_cc_proxy = function cc_proxy { echo "g++ $$*"; g++ 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; }
+define_cc_proxy = function cc_proxy {( set -euo pipefail; echo "g++ $$*"; g++ 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; )}
 cc := cc_proxy
 
-cc_base := -std=c++14
-ld_base := -lpthread
+cc_base := -pipe -std=c++14
+ld_base := -pipe -lpthread
 
 ifeq ($(mode),debug)
-cc_opts := $(cc_base) -Wall -Og -g
+cc_opts := $(cc_base) -Wall -Og -g -DDEBUG
 ld_opts := $(ld_base)
 else
 ifeq ($(mode),release)
