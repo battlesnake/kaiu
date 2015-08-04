@@ -110,6 +110,10 @@ $(test)/functional: $(obj)/promise.o $(obj)/event_loop.o $(obj)/starter_pistol.o
 
 $(test)/decimal: $(obj)/decimal.o
 
+$(test)/promise_stream: $(obj)/promise_stream.o $(obj)/promise.o
+
+$(test)/task_stream: $(obj)/promise.o $(obj)/promise_stream.o $(obj)/task.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+
 # Test binaries
 
 $(test)/%: $(obj)/test_%.o $(obj)/assertion.o | $(test)
