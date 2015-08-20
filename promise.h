@@ -248,7 +248,14 @@ protected:
 	exception_ptr& get_error(ensure_locked);
 	/* Make this promise a terminator */
 	void set_terminator(ensure_locked);
-	/* Prevent destruction via self-reference.  Does not count locks/unlocks. */
+	/*
+	 * Prevent destruction via self-reference.  Does not count locks so do not
+	 * nest them.  An immediately resolved/rejected promise will not lock
+	 * properly due to set_locked being called before the self-reference has
+	 * been set up - but this is not an issue since an immediate promise cannot
+	 * be used once it has gone out of scope (by being immediate, it cannot do
+	 * anything asynchronously and thus cannot move between scopes).
+	 */
 	void set_locked(bool locked);
 private:
 	promise_state state{promise_state::pending};
