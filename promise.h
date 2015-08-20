@@ -162,7 +162,7 @@ public:
 	/* Promise */
 	Promise();
 	/* Resolved promise */
-	Promise(DResult&& result);
+	Promise(Result&& result);
 	/* Rejected promise */
 	Promise(const nullptr_t dummy, exception_ptr error);
 	Promise(const nullptr_t dummy, const string& error);

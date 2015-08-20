@@ -135,7 +135,7 @@ void calculateMultipleFactorials()
 	const auto start = system_clock::now();
 	/* Calculate multiple factorials */
 	for (int i = 625; i <= 10000; i *= 2) {
-		promise::resolved(i)
+		promise::resolved(int(i))
 			->then(calcFactorial)
 			->then(formatResult << cref(start) << i)
 			->then(writeStr)
@@ -155,7 +155,7 @@ void calculateOneFactorial()
 	for (remove_const<decltype(tasks)>::type i = 0; i < tasks; i++) {
 		auto subrange = make_tuple(x, i + 1, tasks);
 		partials.push_back(
-			promise::resolved(subrange)
+			promise::resolved(move(subrange))
 				->then(calcPartialFactorial));
 	}
 	promise::combine(partials)

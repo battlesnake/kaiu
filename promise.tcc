@@ -246,8 +246,8 @@ Promise<Result>::Promise(const Promise<XResult>& p) :
 /* Resolve constructor */
 
 template <typename Result>
-Promise<Result>::Promise(DResult&& result) :
-	Promise(new PromiseState<DResult>(forward<DResult>(result)))
+Promise<Result>::Promise(Result&& result) :
+	Promise(new PromiseState<DResult>(forward<Result>(result)))
 {
 }
 
