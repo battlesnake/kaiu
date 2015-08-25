@@ -7,6 +7,7 @@
 #include <tuple>
 #include <vector>
 #include <type_traits>
+#include "self_locking.h"
 
 namespace kaiu {
 
@@ -145,8 +146,6 @@ public:
  */
 
 class PromiseBase {
-protected:
-	void assign_weak_reference(const shared_ptr<PromiseStateBase> ref);
 };
 
 template <typename Result>
@@ -181,7 +180,6 @@ private:
 	friend class Promise<DResult>;
 	friend class Promise<RResult>;
 	friend class Promise<XResult>;
-	Promise(PromiseState<DResult> * const promise);
 	Promise(shared_ptr<PromiseState<DResult>> const promise);
 	shared_ptr<PromiseState<DResult>> promise;
 };
@@ -193,7 +191,7 @@ static_assert(!is_promise<int>::value, "is_promise failed (test 2)");
  * Untyped promise state
  */
 
-class PromiseStateBase {
+class PromiseStateBase : public self_locking<PromiseStateBase> {
 public:
 	/* Reject */
 	void reject(exception_ptr error);
@@ -248,15 +246,6 @@ protected:
 	exception_ptr& get_error(ensure_locked);
 	/* Make this promise a terminator */
 	void set_terminator(ensure_locked);
-	/*
-	 * Prevent destruction via self-reference.  Does not count locks so do not
-	 * nest them.  An immediately resolved/rejected promise will not lock
-	 * properly due to set_locked being called before the self-reference has
-	 * been set up - but this is not an issue since an immediate promise cannot
-	 * be used once it has gone out of scope (by being immediate, it cannot do
-	 * anything asynchronously and thus cannot move between scopes).
-	 */
-	void set_locked(bool locked);
 private:
 	promise_state state{promise_state::pending};
 	exception_ptr error{};
@@ -268,10 +257,6 @@ private:
 	bool callbacks_assigned{false};
 	function<void(ensure_locked)> on_resolve{nullptr};
 	function<void(ensure_locked)> on_reject{nullptr};
-	/* Self-references, used to control lifetime of the state object */
-	weak_ptr<PromiseStateBase> self_weak_reference;
-	shared_ptr<PromiseStateBase> self_strong_reference;
-	friend class PromiseBase;
 };
 
 /***

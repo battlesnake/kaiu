@@ -5,13 +5,6 @@ namespace kaiu {
 
 using namespace std;
 
-/*** PromiseBase ***/
-
-void PromiseBase::assign_weak_reference(const shared_ptr<PromiseStateBase> ref)
-{
-	ref->self_weak_reference = ref;
-}
-
 /*** PromiseStateBase ***/
 
 PromiseStateBase::PromiseStateBase()
@@ -51,17 +44,6 @@ void PromiseStateBase::reject(exception_ptr error)
 void PromiseStateBase::reject(const string& error)
 {
 	reject(make_exception_ptr(runtime_error(error)));
-}
-
-void PromiseStateBase::set_locked(bool locked)
-{
-	if (locked) {
-		if (!self_strong_reference) {
-			self_strong_reference = self_weak_reference.lock();
-		}
-	} else {
-		self_strong_reference = nullptr;
-	}
 }
 
 void PromiseStateBase::set_callbacks(ensure_locked lock, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject)

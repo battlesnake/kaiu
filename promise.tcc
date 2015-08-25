@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <mutex>
 #include "tuple_iteration.h"
+#include "self_locking.h"
 #include "promise.h"
 
 namespace kaiu {
@@ -168,7 +169,7 @@ template <typename Result>
 template <typename NextResult, int dummy, typename>
 NextResult&& PromiseState<Result>::forward_result(Result& result)
 {
-	throw new logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
+	throw logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
 }
 
 template <typename Result>
@@ -208,18 +209,11 @@ Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
 {
 }
 
-template <typename Result>
-Promise<Result>::Promise(PromiseState<DResult> * const promise) :
-	promise(promise)
-{
-	assign_weak_reference(static_pointer_cast<PromiseStateBase>(this->promise));
-}
-
 /* Default constructor */
 
 template <typename Result>
 Promise<Result>::Promise() :
-	Promise(new PromiseState<DResult>())
+	Promise(make_self_locking<PromiseState<DResult>>())
 {
 }
 
@@ -247,7 +241,7 @@ Promise<Result>::Promise(const Promise<XResult>& p) :
 
 template <typename Result>
 Promise<Result>::Promise(Result&& result) :
-	Promise(new PromiseState<DResult>(forward<Result>(result)))
+	Promise(make_self_locking<PromiseState<DResult>>(forward<Result>(result)))
 {
 }
 
@@ -255,13 +249,13 @@ Promise<Result>::Promise(Result&& result) :
 
 template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, exception_ptr error) :
-	Promise(new PromiseState<DResult>(dummy, error))
+	Promise(make_self_locking<PromiseState<DResult>>(dummy, error))
 {
 }
 
 template <typename Result>
 Promise<Result>::Promise(const nullptr_t dummy, const string& error) :
-	Promise(new PromiseState<DResult>(dummy, error))
+	Promise(make_self_locking<PromiseState<DResult>>(dummy, error))
 {
 }
 
