@@ -304,7 +304,7 @@ public:
 	template <typename NextResult = Result>
 		using NextFunc = function<NextResult(Result&)>;
 	template <typename NextResult = Result>
-		using ExceptFunc = function<NextResult(exception_ptr&)>;
+		using ExceptFunc = function<NextResult(exception_ptr)>;
 	/* "then" and "except" ending promise chain */
 	using NextVoidFunc = NextFunc<void>;
 	using ExceptVoidFunc = ExceptFunc<void>;
@@ -370,7 +370,7 @@ public:
 	/* Except */
 	template <
 		typename Except,
-		typename NextPromise = typename result_of<Except(exception_ptr&)>::type,
+		typename NextPromise = typename result_of<Except(exception_ptr)>::type,
 		typename NextResult = typename NextPromise::result_type,
 		typename = typename enable_if<
 			is_promise<NextPromise>::value
@@ -391,7 +391,7 @@ public:
 	/* Except (end promise chain) */
 	template <
 		typename Except,
-		typename NextResult = typename result_of<Except(exception_ptr&)>::type,
+		typename NextResult = typename result_of<Except(exception_ptr)>::type,
 		typename = typename enable_if<
 			is_void<NextResult>::value
 		>::type>
@@ -424,7 +424,7 @@ private:
 	template <typename NextResult>
 	static Promise<NextResult> default_next(Result& result);
 	template <typename NextResult>
-	static Promise<NextResult> default_except(exception_ptr& error);
+	static Promise<NextResult> default_except(exception_ptr error);
 	static void default_finally();
 };
 

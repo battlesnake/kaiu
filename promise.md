@@ -96,7 +96,7 @@ converted to an exception).
 			[] (int result) {
 				/* Success handler, won't be called */
 			},
-			[] (exception_ptr& error) {
+			[] (exception_ptr error) {
 				/* Error handler */
 				try {
 					rethrow_exception(error);
@@ -174,9 +174,9 @@ promise being resolved to that value.  `handler` may also throw or re-throw.  If
 
 For `Promise<X>::except(handler)`, `handler` has one of the following signatures
 
-	Y next(exception_ptr& error)
-	Promise<Y> next(exception_ptr& error)
-	void next(exception_ptr& error)
+	Y handler(exception_ptr error)
+	Promise<Y> handler(exception_ptr error)
+	void handler(exception_ptr error)
 
 `finalizer` takes no parameters and returns no value.
 
@@ -264,7 +264,7 @@ Promise result types: identical
 			[] (auto& result) {
 				/* Won't reach here as some promises are rejected */
 			},
-			[] (exception_ptr& error) {
+			[] (exception_ptr error) {
 				try {
 					rethrow_exception(error);
 				} catch (const exception& error) {

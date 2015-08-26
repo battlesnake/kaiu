@@ -107,7 +107,7 @@ void ParallelEventLoop::push(const EventLoopPool pool, const EventFunc& event)
 	queue.emplace(new EventFunc(event));
 }
 
-void ParallelEventLoop::process_exceptions(function<void(exception_ptr&)> handler)
+void ParallelEventLoop::process_exceptions(function<void(exception_ptr)> handler)
 {
 	do {
 		unique_lock<mutex> lock(exceptions_mutex);
@@ -144,7 +144,7 @@ auto ParallelEventLoop::next(const EventLoopPool pool) -> Event
 	}
 }
 
-void ParallelEventLoop::join(function<void(exception_ptr&)> handler)
+void ParallelEventLoop::join(function<void(exception_ptr)> handler)
 {
 	if (current_pool() != EventLoopPool::unknown) {
 		throw logic_error("join called from worker thread");

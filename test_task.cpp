@@ -99,7 +99,7 @@ decimal series_product(const vector<decimal>& series)
 	return reductor;
 }
 
-void print_error(exception_ptr& error)
+void print_error(exception_ptr error)
 {
 	try {
 		rethrow_exception(error);

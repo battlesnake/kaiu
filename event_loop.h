@@ -98,7 +98,7 @@ public:
 	ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools);
 	virtual ~ParallelEventLoop() override; 
 	/* If handler is nullptr, the exceptions are discarded */
-	void process_exceptions(function<void(exception_ptr&)> handler = nullptr);
+	void process_exceptions(function<void(exception_ptr)> handler = nullptr);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
 	/*
 	 * Returns when all threads are idle and no events are pending.
@@ -106,7 +106,7 @@ public:
 	 * Calls handler on all queued exceptions and on any that are queued during
 	 * the wait.
 	 */
-	void join(function<void(exception_ptr&)> handler = nullptr);
+	void join(function<void(exception_ptr)> handler = nullptr);
 	/*
 	 * Get which pool the current thread is in.  Returns unknown if not a
 	 * ParallelEventLoop-pooled thread, e.g. the application's main thread.

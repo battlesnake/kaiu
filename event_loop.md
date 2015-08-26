@@ -99,7 +99,7 @@ thrown by jobs).  See the "handling exceptions" section below for an example.
 
 ### Handling exceptions
 
-	process_exceptions([] (exception_ptr& error) {
+	process_exceptions([] (exception_ptr error) {
 		try {
 			rethrow_exception(error);
 		} catch (const exception& ex) {

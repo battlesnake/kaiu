@@ -181,7 +181,7 @@ Promise<NextResult> PromiseState<Result>::default_next(Result& result)
 
 template <typename Result>
 template <typename NextResult>
-Promise<NextResult> PromiseState<Result>::default_except(exception_ptr& error)
+Promise<NextResult> PromiseState<Result>::default_except(exception_ptr error)
 {
 	rethrow_exception(error);
 }
@@ -325,7 +325,7 @@ struct HeterogenousCombineState {
 		}
 		get<index>(results) = move(result);
 	};
-	void handler(exception_ptr& error) {
+	void handler(exception_ptr error) {
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
@@ -399,7 +399,7 @@ struct HomogenousCombineState {
 		}
 		results[index] = move(result);
 	};
-	void handler(exception_ptr& error) {
+	void handler(exception_ptr error) {
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
