@@ -1,7 +1,6 @@
 #include <exception>
 #include <stdexcept>
 #include <thread>
-#include <iostream>
 #include <mutex>
 #include <condition_variable>
 #include "assertion.h"
@@ -37,6 +36,10 @@ Assertions assert({
 	{ "NC", "Copy-free promise chaining" },
 	{ "NCP", "Copy-free heterogenous combinator" },
 	{ "NCV", "Copy-free homogenous combinator" },
+	{ nullptr, "Optional arguments (statically checked)" },
+	{ "OATN", "Then: omit 'next'" },
+	{ "OATH", "Then: omit 'handler'" },
+	{ "OATF", "Then: omit 'finalizer'" },
 });
 
 void do_async_nonblock(function<void()> op)
@@ -283,11 +286,49 @@ void efficiency_test()
 	}
 }
 
-int main(int argc, char *argv[]) {
+void static_checks()
+{
+	assert.skip("OATN");
+	promise::resolved(42)
+		->then(
+			[] (auto result) {
+				return 21;
+			},
+			nullptr,
+			[] () {
+			})
+		->then(
+			[] (int result) {
+				assert.expect(result, 21, "OATH");
+			},
+			[] (exception_ptr) {
+				assert.fail("OATH");
+			});
+	promise::resolved(42)
+		->then(
+			[] (auto result) {
+				return 21;
+			},
+			[] (exception_ptr) {
+				return 42;
+			},
+			nullptr)
+		->then(
+			[] (int result) {
+				assert.expect(result, 21, "OATF");
+			},
+			[] (exception_ptr) {
+				assert.fail("OATF");
+			});
+}
+
+int main(int argc, char *argv[])
+{
 	auto printer = assert.printer();
 	flow_test();
 	static_combine_test();
 	dynamic_combine_test();
 	efficiency_test();
+	static_checks();
 	return assert.print(argc, argv);
 }
