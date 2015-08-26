@@ -163,7 +163,7 @@ while (( $# )); do
 	rm -f -- "${target}"
 	printf -- '\n\e[1mBuild (%s)\e[0m\n' "${test}"
 	export o_number mode
-	if make "${target}" | ( if (( page )); then less -R; else cat; fi ) && [ -e "${target}" ]; then
+	if make "${target}" 2>&1 | ( if (( page )); then less -R; else cat; fi ) && [ -e "${target}" ]; then
 		printf -- '\n\e[36mOutput size: %sk\e[0m\n' "$(printf -- '%s/1024\n' "$(stat -c %s "${target}")" | bc)"
 		if ! (
 			case "${action}" in
