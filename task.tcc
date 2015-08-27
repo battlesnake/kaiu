@@ -17,25 +17,20 @@ UnboundTask<Result, Args...> task(
 		Promise<Result> promise;
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
-			if (reaction_pool == EventLoopPool::same || reaction_pool == ParallelEventLoop::current_pool()) {
-				factory(args...)
-					->forward_to(promise);
-			} else {
-				auto resolve = [promise, reaction_pool, &loop] (Result& result) {
-					auto proxy = [promise, result = move(result)] (EventLoop&) mutable {
-						promise->resolve(move(result));
-					};
-					loop.push(reaction_pool, detail::make_shared_functor(proxy));
+			auto resolve = [promise, reaction_pool, &loop] (Result& result) {
+				auto proxy = [promise, result = move(result)] (EventLoop&) mutable {
+					promise->resolve(move(result));
 				};
-				auto reject = [promise, reaction_pool, &loop] (exception_ptr error) {
-					auto proxy = [promise, error] (EventLoop&) {
-						promise->reject(error);
-					};
-					loop.push(reaction_pool, proxy);
+				loop.push(reaction_pool, detail::make_shared_functor(proxy));
+			};
+			auto reject = [promise, reaction_pool, &loop] (exception_ptr error) {
+				auto proxy = [promise, error] (EventLoop&) {
+					promise->reject(error);
 				};
-				factory(args...)
-					->then(resolve, reject);
-			}
+				loop.push(reaction_pool, proxy);
+			};
+			factory(args...)
+				->then(resolve, reject);
 		};
 		loop.push(action_pool, action);
 		return promise;
