@@ -17,6 +17,8 @@ using namespace std::chrono;
 using namespace kaiu;
 
 Assertions assert({
+	{ nullptr, "Behaviour" },
+	{ "THREADS", "Callbacks are dispatched to correct threads" },
 	{ nullptr, "Calculate multiple factorials simultaneously" },
 	{ "625", "625!" },
 	{ "1250", "1250!" },
@@ -34,6 +36,65 @@ ParallelEventLoop loop{ {
 	{ EventLoopPool::interaction, 1 },
 	{ EventLoopPool::calculation, cores }
 } };
+
+void threadTests()
+{
+	atomic<bool> done{false};
+	mutex mx;
+	condition_variable cv;
+	const auto doReaction = [&] (int result) {
+		if (result != 42) {
+			assert.fail("THREADS", "Result incorrect");
+		}
+		if (ParallelEventLoop::current_pool() != EventLoopPool::reactor) {
+			assert.fail("THREADS", "Reaction in wrong pool");
+		}
+		assert.pass("THREADS");
+	};
+	auto handler = [&] (exception_ptr) {
+		if (ParallelEventLoop::current_pool() != EventLoopPool::reactor) {
+			assert.fail("THREADS", "Reaction (handler) in wrong pool");
+		}
+		assert.fail("THREADS", "Exception thrown");
+	};
+	auto finalizer = [&] () {
+		if (ParallelEventLoop::current_pool() != EventLoopPool::reactor) {
+			assert.fail("THREADS", "Reaction (finalizer) in wrong pool");
+		}
+		done = true;
+		cv.notify_all();
+	};
+	const auto doCalculation = [&] () {
+		if (ParallelEventLoop::current_pool() != EventLoopPool::calculation) {
+			assert.fail("THREADS", "Action in wrong pool");
+		}
+		Promise<int> promise;
+		/* Asynchronous */
+		loop.push(EventLoopPool::calculation,
+			[=] (EventLoop&) {
+				this_thread::sleep_for(10ms);
+				promise->resolve(42);
+			});
+		return promise;
+	};
+	const auto handleInteraction = [&] (EventLoop& loop) {
+		if (ParallelEventLoop::current_pool() != EventLoopPool::interaction) {
+			assert.fail("THREADS", "Initial job in wrong pool");
+		}
+		const auto task = promise::task(promise::Factory<int>(doCalculation),
+			EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
+		task()
+			->then(doReaction, handler, finalizer);
+	};
+	loop.push(EventLoopPool::interaction, handleInteraction);
+	unique_lock<mutex> lock(mx);
+	cv.wait(lock, [&done] { return bool(done); });
+}
+
+void behaviourTests()
+{
+	threadTests();
+}
 
 string writeStrFunc(const string& message)
 {
@@ -108,22 +169,22 @@ void print_error(exception_ptr error)
 	}
 }
 
-const auto writeStr = promise::task(promise::factory(writeStrFunc),
+const auto writeStr = promise::dispatchable(writeStrFunc,
 	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-const auto writeNum = promise::task(promise::factory(writeNumFunc),
+const auto writeNum = promise::dispatchable(writeNumFunc,
 	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-const auto calcFactorial = promise::task(promise::factory(factorial),
+const auto calcFactorial = promise::dispatchable(factorial,
 	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
 
-const auto calcPartialFactorial = promise::task(promise::factory(partial_factorial_tuple),
+const auto calcPartialFactorial = promise::dispatchable(partial_factorial_tuple,
 	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
 
-const auto formatResult = promise::task(promise::factory(format_result),
+const auto formatResult = promise::dispatchable(format_result,
 	EventLoopPool::interaction, EventLoopPool::reactor) << ref(loop);
 
-const auto seriesProduct = promise::task(promise::factory(series_product),
+const auto seriesProduct = promise::dispatchable(series_product,
 	EventLoopPool::calculation, EventLoopPool::reactor) << ref(loop);
 
 void calculateMultipleFactorials()
@@ -169,8 +230,10 @@ void calculateOneFactorial()
 int main(int argc, char *argv[])
 {
 	auto printer = assert.printer();
+	behaviourTests();
 	calculateMultipleFactorials();
 	calculateOneFactorial();
+	/* Wait for detatched threads to complete, TODO use OS wait instead */
 	this_thread::sleep_for(100ms);
 	return assert.print(argc, argv);
 }

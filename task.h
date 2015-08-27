@@ -62,12 +62,51 @@ using UnboundTask = Curried<Promise<Result>, sizeof...(Args) + 1, Factory<Result
 template <typename Result, typename... Args>
 using BoundTask = Curried<Promise<Result>, sizeof...(Args) + 1, Factory<Result, EventLoop&, Args...>, EventLoop&>;
 
-/* Parameter is a promise factory */
+/* Parameter is a promise factory, result is a task */
+
 template <typename Result, typename... Args>
 UnboundTask<Result, Args...> task(
 	Factory<Result, Args...> factory,
 	const EventLoopPool action_pool,
 	const EventLoopPool reaction_pool = EventLoopPool::same);
+
+/* Parameter is a function, result is a task */
+
+template <typename Result, typename... Args>
+UnboundTask<Result, Args...> dispatchable(
+	function<Result(Args...)> func,
+	const EventLoopPool action_pool,
+	const EventLoopPool reaction_pool = EventLoopPool::same)
+		{ return task(factory(func), action_pool, reaction_pool); }
+
+template <typename Result, typename... Args>
+UnboundTask<Result, Args...> dispatchable(
+	Result (&func)(Args...),
+	const EventLoopPool action_pool,
+	const EventLoopPool reaction_pool = EventLoopPool::same)
+		{ return task(factory(func), action_pool, reaction_pool); }
+
+/* Parameter is a function, it is task-wrapped and immediately executed */
+
+template <typename Result, typename... Args>
+Promise<Result> dispatch(
+	function<Result(Args...)> func,
+	const EventLoopPool action_pool,
+	const EventLoopPool reaction_pool,
+	EventLoop& loop,
+	Args&&... args)
+		{ return task(factory(func), action_pool, reaction_pool)
+			(loop, forward<Args>(args)...); }
+
+template <typename Result, typename... Args>
+Promise<Result> dispatch(
+	Result (&func)(Args...),
+	const EventLoopPool action_pool,
+	const EventLoopPool reaction_pool,
+	EventLoop& loop,
+	Args&&... args)
+		{ return task(factory(func), action_pool, reaction_pool)
+			(loop, forward<Args>(args)...); }
 
 }
 

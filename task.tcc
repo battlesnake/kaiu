@@ -1,4 +1,5 @@
 #define task_tcc
+#include "shared_functor.h"
 #include "task.h"
 
 namespace kaiu {
@@ -17,13 +18,23 @@ UnboundTask<Result, Args...> task(
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
 			if (reaction_pool == EventLoopPool::same || reaction_pool == ParallelEventLoop::current_pool()) {
-				factory(args...)->forward_to(promise);
+				factory(args...)
+					->forward_to(promise);
 			} else {
-				auto result = factory(args...);
-				auto reaction = [result, promise] (auto& loop) {
-					result->forward_to(promise);
+				auto resolve = [promise, reaction_pool, &loop] (Result& result) {
+					auto proxy = [promise, result = move(result)] (EventLoop&) mutable {
+						promise->resolve(move(result));
+					};
+					loop.push(reaction_pool, detail::make_shared_functor(proxy));
 				};
-				loop.push(reaction_pool, reaction);
+				auto reject = [promise, reaction_pool, &loop] (exception_ptr error) {
+					auto proxy = [promise, error] (EventLoop&) {
+						promise->reject(error);
+					};
+					loop.push(reaction_pool, proxy);
+				};
+				factory(args...)
+					->then(resolve, reject);
 			}
 		};
 		loop.push(action_pool, action);
