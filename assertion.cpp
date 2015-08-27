@@ -74,8 +74,14 @@ void Assertions::_set(ensure_locked, const string& code, const result state, con
 		auto& target = list.at(code);
 		if (target.first == unknown) {
 			target = make_pair(state, note);
-		} else if (target.first == state && state == failed && target.second.empty()) {
-			target = make_pair(state, note);
+		} else if (target.first == failed) {
+			if (state == failed) {
+				if (target.second.empty()) {
+					target = make_pair(state, note);
+				} else {
+					target.second += " \e[1malso\e[22m " + note;
+				}
+			}
 		} else {
 			throw logic_error("Two results set for test '" + code + "'");
 		}
