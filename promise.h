@@ -184,7 +184,7 @@ static_assert(!is_promise<int>::value, "is_promise failed (test 2)");
  * Untyped promise state
  */
 
-class PromiseStateBase {
+class PromiseStateBase : public enable_shared_from_this<PromiseStateBase> {
 public:
 	/* Reject */
 	void reject(exception_ptr error);
@@ -247,6 +247,10 @@ private:
 	bool callbacks_assigned{false};
 	function<void(ensure_locked)> on_resolve{nullptr};
 	function<void(ensure_locked)> on_reject{nullptr};
+	/* Used to prevents self-destruction */
+	shared_ptr<PromiseStateBase> self_reference{nullptr};
+	void lock_self();
+	void unlock_self();
 };
 
 /***

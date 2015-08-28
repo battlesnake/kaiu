@@ -15,17 +15,24 @@ PromiseStateBase::PromiseStateBase()
 PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
 	lock_guard<mutex> lock(state_lock);
-	/* Not completed and not end of chain */
+	/*
+	 * Don't throw if stack is being unwound, it'll prevent catch blocks from
+	 * being run and will generally ruin your debugging experience.
+	 */
+	if (std::uncaught_exception()) {
+		return;
+	}
 	if (callbacks_assigned) {
+		/* Bound but not completed */
 		if (state != promise_state::completed) {
 			on_resolve = nullptr;
 			on_reject = nullptr;
 			throw logic_error("Promise destructor called on bound but uncompleted promise");
 		}
 	} else {
+		/* Not completed and not end of chain (should be a "warning" really) */
 		if (state == promise_state::resolved || state == promise_state::rejected) {
-			//set_terminator(lock);
-			throw logic_error("Unterminted promise chain");
+			throw logic_error("Unterminted promise chain (forgot ->finish?)");
 		}
 	}
 }
@@ -78,32 +85,53 @@ void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_st
 		throw logic_error("Invalid state");
 	}
 	/* Apply transition */
-	state = next_state;	
+	state = next_state;
 	update_state(lock);
 }
 
 void PromiseStateBase::update_state(ensure_locked lock)
 {
+	/*
+	 * After unlock_self(), this instance may be destroyed.  Hence, we must not
+	 * do anything that accesses *this after calling unlock_self().
+	 * Consequently, any method which calls update_state(...) or set_state()
+	 * must not access *this after that call.
+	 */
 	switch (state) {
 	case promise_state::pending:
 		break;
 	case promise_state::rejected:
 		if (callbacks_assigned) {
-			on_reject(lock);
+			auto callback = on_reject;
+			lock_self();
 			set_state(lock, promise_state::completed);
+			callback(lock);
 		}
 		break;
 	case promise_state::resolved:
 		if (callbacks_assigned) {
-			on_resolve(lock);
+			auto callback = on_resolve;
+			lock_self();
 			set_state(lock, promise_state::completed);
+			callback(lock);
 		}
 		break;
 	case promise_state::completed:
 		on_resolve = nullptr;
 		on_reject = nullptr;
+		unlock_self();
 		break;
 	}
+}
+
+void PromiseStateBase::lock_self()
+{
+	self_reference = shared_from_this();
+}
+
+void PromiseStateBase::unlock_self()
+{
+	self_reference = nullptr;
 }
 
 void PromiseStateBase::set_error(ensure_locked lock, exception_ptr error)
@@ -125,7 +153,6 @@ void PromiseStateBase::set_terminator(ensure_locked lock)
 				rethrow_exception(error);
 			}
 		});
-	update_state(lock);
 }
 
 void PromiseStateBase::finish()
