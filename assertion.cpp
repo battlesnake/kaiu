@@ -68,25 +68,41 @@ void Assertions::skip(const string& code, const string& note)
 	set(code, skipped, note);
 }
 
-void Assertions::_set(ensure_locked, const string& code, const result state, const string& note)
+void Assertions::try_pass(const string& code, const string& note)
+{
+	lock_guard<mutex> lock(mx);
+	auto& target = _get(lock, code);
+	if (target.first == unknown) {
+		_set(lock, code, passed, note);
+	}
+}
+
+auto Assertions::_get(ensure_locked, const string& code)
+	-> pair<result, string>&
 {
 	try {
-		auto& target = list.at(code);
-		if (target.first == unknown) {
-			target = make_pair(state, note);
-		} else if (target.first == failed) {
-			if (state == failed) {
-				if (target.second.empty()) {
-					target = make_pair(state, note);
-				} else {
-					target.second += " \e[1malso\e[22m " + note;
-				}
-			}
-		} else {
-			throw logic_error("Two results set for test '" + code + "'");
-		}
+		return list.at(code);
 	} catch (const out_of_range& e) {
 		cerr << "Unknown assertion: " << code << endl;
+		throw;
+	}
+}
+
+void Assertions::_set(ensure_locked lock, const string& code, const result state, const string& note)
+{
+	auto& target = _get(lock, code);
+	if (target.first == unknown) {
+		target = make_pair(state, note);
+	} else if (target.first == failed) {
+		if (state == failed) {
+			if (target.second.empty()) {
+				target = make_pair(state, note);
+			} else {
+				target.second += " \e[1malso\e[22m " + note;
+			}
+		}
+	} else {
+		throw logic_error("Two results set for test '" + code + "'");
 	}
 }
 

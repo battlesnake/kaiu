@@ -20,6 +20,7 @@ public:
 	void pass(const string& code, const string& note = "");
 	void fail(const string& code, const string& note = "");
 	void skip(const string& code, const string& note = "");
+	void try_pass(const string& code, const string& note = "");
 	template <typename T, typename U>
 	void expect(const T& t, const U& u, const string& assertion, const string& note = "");
 	int print(bool always);
@@ -42,6 +43,7 @@ private:
 	unordered_map<string, pair<result, string>> list;
 	int _print(ensure_locked, bool always);
 	void _set(ensure_locked, const string& code, const result state, const string& note);
+	pair<result, string>& _get(ensure_locked, const string& code);
 };
 
 template <typename Actual, typename Expect>
