@@ -36,8 +36,7 @@ Assertions assert({
 	{ "NC", "Copy-free promise chaining" },
 	{ "NCP", "Copy-free heterogenous combinator" },
 	{ "NCV", "Copy-free homogenous combinator" },
-	{ nullptr, "Optional arguments (statically checked)" },
-	{ "OATN", "Then: omit 'next'" },
+	{ nullptr, "Compiler handles optional arguments correctly (statically checked)" },
 	{ "OATH", "Then: omit 'handler'" },
 	{ "OATF", "Then: omit 'finalizer'" },
 });
@@ -117,7 +116,7 @@ void flow_test() {
 			},
 			[] (auto error) {
 				assert.fail("ARPR");
-				return Promise<int>(-1);
+				return promise::resolved<int>(-1);
 			})
 		->then(
 			[] (auto result) {
@@ -274,8 +273,8 @@ void efficiency_test()
 	}
 	{
 		vector<Promise<unique_ptr<int>>> v;
-		v.emplace_back(make_unique<int>(1));
-		v.emplace_back(make_unique<int>(2));
+		v.emplace_back(promise::resolved(make_unique<int>(1)));
+		v.emplace_back(promise::resolved(make_unique<int>(2)));
 		promise::combine(v)
 			->then([] (auto& result) {
 				assert.expect(
@@ -288,7 +287,6 @@ void efficiency_test()
 
 void static_checks()
 {
-	assert.skip("OATN");
 	promise::resolved(42)
 		->then(
 			[] (auto result) {

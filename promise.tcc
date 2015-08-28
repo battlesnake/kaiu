@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <mutex>
 #include "tuple_iteration.h"
-#include "self_locking.h"
 #include "promise.h"
 
 namespace kaiu {
@@ -11,13 +10,6 @@ namespace kaiu {
 using namespace std;
 
 /*** PromiseState ***/
-
-template <typename Result>
-PromiseState<Result>::PromiseState(Result&& result) :
-	PromiseStateBase()
-{
-	resolve(forward<Result>(result));
-}
 
 template <typename Result>
 void PromiseState<Result>::set_result(ensure_locked lock, Result&& value)
@@ -176,7 +168,7 @@ template <typename Result>
 template <typename NextResult>
 Promise<NextResult> PromiseState<Result>::default_next(Result& result)
 {
-	return Promise<NextResult>(forward_result<NextResult>(result));
+	return promise::resolved<NextResult>(forward_result<NextResult>(result));
 }
 
 template <typename Result>
@@ -201,7 +193,7 @@ auto Promise<Result>::operator ->() const -> PromiseState<DResult> *
 	return promise.get();
 }
 
-/* One of these is always called by the other constructors */
+/* Constructor for sharing state with another promise */
 
 template <typename Result>
 Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
@@ -209,11 +201,11 @@ Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
 {
 }
 
-/* Default constructor */
+/* Constructor for creating a new state */
 
 template <typename Result>
 Promise<Result>::Promise() :
-	Promise(make_self_locking<PromiseState<DResult>>())
+	promise(make_shared<PromiseState<DResult>>())
 {
 }
 
@@ -237,28 +229,6 @@ Promise<Result>::Promise(const Promise<XResult>& p) :
 {
 }
 
-/* Resolve constructor */
-
-template <typename Result>
-Promise<Result>::Promise(Result&& result) :
-	Promise(make_self_locking<PromiseState<DResult>>(forward<Result>(result)))
-{
-}
-
-/* Reject constructors */
-
-template <typename Result>
-Promise<Result>::Promise(const nullptr_t dummy, exception_ptr error) :
-	Promise(make_self_locking<PromiseState<DResult>>(dummy, error))
-{
-}
-
-template <typename Result>
-Promise<Result>::Promise(const nullptr_t dummy, const string& error) :
-	Promise(make_self_locking<PromiseState<DResult>>(dummy, error))
-{
-}
-
 /*** Utils ***/
 namespace promise {
 
@@ -267,19 +237,25 @@ namespace promise {
 template <typename Result, typename DResult>
 Promise<DResult> resolved(Result&& result)
 {
-	return Promise<Result>(forward<Result>(result));
+	Promise<DResult> promise;
+	promise->resolve(forward<Result>(result));
+	return promise;
 }
 
 template <typename Result, typename DResult>
 Promise<DResult> rejected(exception_ptr error)
 {
-	return Promise<Result>(nullptr, error);
+	Promise<DResult> promise;
+	promise->reject(error);
+	return promise;
 }
 
 template <typename Result, typename DResult>
 Promise<DResult> rejected(const string& error)
 {
-	return Promise<Result>(nullptr, error);
+	Promise<DResult> promise;
+	promise->reject(error);
+	return promise;
 }
 
 /* Create promise factory using given function */

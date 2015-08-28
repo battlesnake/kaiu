@@ -16,23 +16,20 @@ PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
 	lock_guard<mutex> lock(state_lock);
 	/* Not completed and not end of chain */
-	if (callbacks_assigned && state != promise_state::completed) {
-		on_resolve = nullptr;
-		on_reject = nullptr;
-		throw logic_error("Promise destructor called on bound but uncompleted promise");
+	if (callbacks_assigned) {
+		if (state != promise_state::completed) {
+			on_resolve = nullptr;
+			on_reject = nullptr;
+			throw logic_error("Promise destructor called on bound but uncompleted promise");
+		}
+	} else {
+		if (state == promise_state::resolved || state == promise_state::rejected) {
+			//set_terminator(lock);
+			throw logic_error("Unterminted promise chain");
+		}
 	}
 }
 #endif
-
-PromiseStateBase::PromiseStateBase(const nullptr_t dummy, exception_ptr error)
-{
-	reject(error);
-}
-
-PromiseStateBase::PromiseStateBase(const nullptr_t dummy, const string& error)
-{
-	reject(error);
-}
 
 void PromiseStateBase::reject(exception_ptr error)
 {
@@ -91,27 +88,20 @@ void PromiseStateBase::update_state(ensure_locked lock)
 	case promise_state::pending:
 		break;
 	case promise_state::rejected:
-		set_locked(true);
 		if (callbacks_assigned) {
 			on_reject(lock);
 			set_state(lock, promise_state::completed);
 		}
 		break;
 	case promise_state::resolved:
-		set_locked(true);
 		if (callbacks_assigned) {
 			on_resolve(lock);
 			set_state(lock, promise_state::completed);
 		}
 		break;
 	case promise_state::completed:
-		/*
-		 * The callbacks should hold references to this promise's container, via
-		 * closures.  Let's break circular references so we don't memory leak...
-		 */
 		on_resolve = nullptr;
 		on_reject = nullptr;
-		set_locked(false);
 		break;
 	}
 }
@@ -129,7 +119,7 @@ exception_ptr& PromiseStateBase::get_error(ensure_locked)
 void PromiseStateBase::set_terminator(ensure_locked lock)
 {
 	set_callbacks(lock,
-		[] (ensure_locked) {}, 
+		[] (ensure_locked) {},
 		[this] (ensure_locked) {
 			if (error) {
 				rethrow_exception(error);

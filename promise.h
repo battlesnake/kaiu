@@ -7,7 +7,6 @@
 #include <tuple>
 #include <vector>
 #include <type_traits>
-#include "self_locking.h"
 
 namespace kaiu {
 
@@ -141,8 +140,7 @@ public:
  * Promise class
  *
  * The default (no-parameter) constructor for Result type and for NextResult
- * type must not throw - promise behaviour is undefined if this happens and
- * promise chains guarantees will most likely break in such conditions.
+ * type must not throw - promise chains guarantees will break.
  */
 
 class PromiseBase {
@@ -160,11 +158,6 @@ public:
 	using result_type = Result;
 	/* Promise */
 	Promise();
-	/* Resolved promise */
-	Promise(Result&& result);
-	/* Rejected promise */
-	Promise(const nullptr_t dummy, exception_ptr error);
-	Promise(const nullptr_t dummy, const string& error);
 	/* Copy/move/cast constructors */
 	Promise(const Promise<DResult>&);
 	Promise(const Promise<RResult>&);
@@ -191,7 +184,7 @@ static_assert(!is_promise<int>::value, "is_promise failed (test 2)");
  * Untyped promise state
  */
 
-class PromiseStateBase : public self_locking<PromiseStateBase> {
+class PromiseStateBase {
 public:
 	/* Reject */
 	void reject(exception_ptr error);
@@ -201,9 +194,6 @@ public:
 	/* No copy/move constructor */
 	PromiseStateBase(PromiseStateBase const&) = delete;
 	PromiseStateBase(PromiseStateBase&&) = delete;
-	/* Construct a rejected promise */
-	PromiseStateBase(const nullptr_t dummy, exception_ptr error);
-	PromiseStateBase(const nullptr_t dummy, const string& error);
 #if defined(DEBUG)
 	/* Destructor */
 	~PromiseStateBase() noexcept(false);
@@ -316,8 +306,6 @@ public:
 	/* No copy/move constructors */
 	PromiseState(PromiseState<Result>&&) = delete;
 	PromiseState(const PromiseState<Result>&) = delete;
-	/* Construct an immediately resolved */
-	PromiseState(Result&& result);
 	/* Resolve */
 	void resolve(Result&& result);
 	/* Reject */
