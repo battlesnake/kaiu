@@ -189,9 +189,7 @@ void monad_tests()
 }
 
 int main(int argc, char **argv)
-{
-	auto printer = assert.printer();
-
+try {
 	basic_tests();
 	cross_thread_currying();
 	monad_tests();
@@ -211,4 +209,6 @@ int main(int argc, char **argv)
 
 	loop.join();
 	return assert.print(argc, argv);
+} catch (...) {
+	assert.print_error();
 }

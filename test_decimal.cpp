@@ -33,8 +33,7 @@ Assertions assert({
 });
 
 int main(int argc, char *argv[])
-{
-	auto printer = assert.printer();
+try {
 	assert.expect(string(decimal(0)), "0", "0is");
 	assert.expect(string(decimal(1)), "1", "1is");
 	assert.expect(string(decimal(32)), "32", "32is");
@@ -58,4 +57,6 @@ int main(int argc, char *argv[])
 	const auto duration = duration_cast<milliseconds>(system_clock::now() - start);
 	assert.expect(fac1k.length() == 16326 && fac1k[0] == 0 && fac1k[fac1k.length() - 1] == 4, true, "5000!", to_string(duration.count()) + string("ms"));
 	return assert.print(argc, argv);
+} catch (...) {
+	assert.print_error();
 }

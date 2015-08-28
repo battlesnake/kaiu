@@ -105,9 +105,10 @@ void test_multi()
 }
 
 int main(int argc, char *argv[])
-{
-	auto printer = assert.printer();
+try {
 	test_single();
 	test_multi();
 	return assert.print(argc, argv);
+} catch (...) {
+	assert.print_error();
 }

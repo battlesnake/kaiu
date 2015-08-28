@@ -25,16 +25,7 @@ public:
 	void expect(const T& t, const U& u, const string& assertion, const string& note = "");
 	int print(bool always);
 	int print(const int argc, char const * const argv[]);
-	/* Prints on destruction if no print has happened yet - a scope guard */
-	class Printer {
-	public:
-		Printer() = delete;
-		Printer(Assertions& assert) : assert(assert) { };
-		~Printer() { if (!assert.printed) { assert.print(true); } };
-	private:
-		Assertions& assert;
-	};
-	Printer printer() { return Printer(*this); };
+	void print_error();
 private:
 	using ensure_locked = const lock_guard<mutex>&;
 	mutex mx;

@@ -43,7 +43,14 @@ Assertions assert({
 
 void do_async_nonblock(function<void()> op)
 {
-	thread(op).detach();
+	auto func = [op] () noexcept {
+		try {
+			op();
+		} catch (exception e) {
+			assert.print(e);
+		}
+	};
+	thread(func).detach();
 }
 
 void flow_test() {
@@ -321,12 +328,13 @@ void static_checks()
 }
 
 int main(int argc, char *argv[])
-{
-	auto printer = assert.printer();
+try {
 	flow_test();
 	static_combine_test();
 	dynamic_combine_test();
 	efficiency_test();
 	static_checks();
 	return assert.print(argc, argv);
+} catch (...) {
+	assert.print_error();
 }

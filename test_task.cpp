@@ -228,12 +228,13 @@ void calculateOneFactorial()
 }
 
 int main(int argc, char *argv[])
-{
-	auto printer = assert.printer();
+try {
 	behaviourTests();
 	calculateMultipleFactorials();
 	calculateOneFactorial();
 	/* Wait for detatched threads to complete, TODO use OS wait instead */
 	this_thread::sleep_for(100ms);
 	return assert.print(argc, argv);
+} catch (...) {
+	assert.print_error();
 }

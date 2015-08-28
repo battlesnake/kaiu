@@ -46,6 +46,26 @@ int Assertions::print(const int argc, char const * const argv[])
 	return _print(lock, !quiet);
 }
 
+void Assertions::print_error()
+{
+	exception_ptr ptr = current_exception();
+	if (!ptr) {
+		return;
+	}
+	try {
+		rethrow_exception(ptr);
+	} catch (const logic_error& error) {
+		cout << "\e[1;31mLogic error: \e[22m" << error.what() << "\e[37m" << endl;
+	} catch (const runtime_error& error) {
+		cout << "\e[1;31mRuntime error: \e[22m" << error.what() << "\e[37m" << endl;
+	} catch (const exception& error) {
+		cout << "\e[1;31mException: \e[22m" << error.what() << "\e[37m" << endl;
+	} catch(...) {
+		cout << "\e[1;31mError of unknown type\e[37m" << endl;
+	}
+	print(true);
+}
+
 void Assertions::set(const string& code, const result state, const string& note)
 {
 	lock_guard<mutex> lock(mx);
@@ -60,7 +80,6 @@ void Assertions::pass(const string& code, const string& note)
 void Assertions::fail(const string& code, const string& note)
 {
 	set(code, failed, note);
-	cerr << "Assertion " << code << " failed: " << endl;
 }
 
 void Assertions::skip(const string& code, const string& note)
@@ -79,13 +98,11 @@ void Assertions::try_pass(const string& code, const string& note)
 
 auto Assertions::_get(ensure_locked, const string& code)
 	-> pair<result, string>&
-{
-	try {
-		return list.at(code);
-	} catch (const out_of_range& e) {
-		cerr << "Unknown assertion: " << code << endl;
-		throw;
-	}
+try {
+	return list.at(code);
+} catch (const out_of_range& e) {
+	cout << "\e[1;31mUnknown assertion: \e[22m" << code << "\e[37m" << endl;
+	throw;
 }
 
 void Assertions::_set(ensure_locked lock, const string& code, const result state, const string& note)

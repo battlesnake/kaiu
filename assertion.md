@@ -15,19 +15,15 @@ Build list of assertions identified by a code and a human-friendly description,
 	};
 
 	int main(int argc, char **argv)
-	{
-		/*
-		 * Uses RAII to ensure that results are printed even if an uncaught
-		 * exception occurs
-		 */
-		auto printer = assert.printer();
-
+	try {
 		assert.expect(2 + 2, 4, "2+2", "Yes");
 
 		assert.fail("TEST");
 
 		/* --test-silent-if-perfect causes short output if all tests passed */
 		return assert.print(argc, argv);
+	} catch (exception) {
+		assert.print(current_exception());
 	}
 
 All tests must either pass or be skipped in order for the return value of
@@ -45,10 +41,17 @@ Store results:
 	assert.skip(code [, note]);
 	assert.set(code, state [, note]);
 	assert.expect(a, b, code [, note]);
+	assert.try_pass(code [, note]);
 
 The `expect` method marks the test as passed if `a == b`, and marks it as failed
 otherwise.  The optional `note` will be displayed next to the test description
 in the output from `assert.print`.
+
+The `fail` method may be called multiple times for the same assertion, and the
+notes (if any) will be concatenated.
+
+The `try_pass` method will `pass` an assertion if it has not yet been assigned
+any other result.
 
 	assert.print(always);
 	assert.print(int argc, char *argv[]);
@@ -59,8 +62,3 @@ The other form will result in `always` being set to true if the parameter
 
 The destructor `Assertions::~Assertions` will call `print` if it has not already
 been called.
-
-	auto printer = assert.printer();
-
-When the `printer` is RAII-destructed, it will call `assert.print` if `print`
-has not already been called.
