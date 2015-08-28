@@ -2,6 +2,7 @@
 #include <functional>
 #include <memory>
 #include <type_traits>
+#include <atomic>
 
 namespace kaiu {
 
@@ -11,16 +12,36 @@ namespace detail {
 
 /*
  * Allows us to capture a non-copyable in a lambda, then cast the lambda to
- * std::function
+ * std::function.
+ *
+ * In DEBUG mode, it also enforces that the callable can only be called once,
+ * and will throw an exception if it is called subsequent times.
  */
 template <typename F>
 class shared_functor {
-public:
-	explicit shared_functor(F&& f) : ptr(make_shared<F>(move(f))) { }
-	template <typename... Args>
-	void operator () (Args&&... args) { (*ptr)(forward<Args>(args)...); }
 private:
-	shared_ptr<F> ptr;
+	struct functor_state {
+#if defined(DEBUG)
+		atomic_flag called{ATOMIC_FLAG_INIT};
+#endif
+		F ptr;
+		functor_state(F&& f) : ptr(move(f)) { }
+	};
+	shared_ptr<functor_state> state;
+public:
+	explicit shared_functor(F&& f) :
+		state(make_shared<functor_state>(move(f)))
+			{ }
+	template <typename... Args>
+	void operator () (Args&&... args)
+	{
+#if defined(DEBUG)
+		if (state->called.test_and_set(memory_order_release)) {
+			throw logic_error("Shared functor called more than once");
+		}
+#endif
+		state->ptr(forward<Args>(args)...);
+	}
 };
 
 template <typename F>
