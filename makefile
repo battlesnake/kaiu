@@ -7,16 +7,16 @@ show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(m
 define_cc_proxy = function cc_proxy {( set -euo pipefail; echo "g++ $$*"; g++ 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; )}
 cc := cc_proxy
 
-cc_base := -pipe -std=c++14
+cc_base := -pipe -pedantic -std=c++14
 ld_base := -pipe -lpthread
 
 ifeq ($(mode),debug)
-cc_opts := $(cc_base) -Wall -Og -g -DDEBUG
-ld_opts := $(ld_base)
+cc_opts := $(cc_base) -Wall -Wextra -Wno-unused-parameter -Og -g -DDEBUG
+ld_opts := $(ld_base) -Wall
 else
 ifeq ($(mode),release)
-cc_opts := $(cc_base) -flto -w -O3
-ld_opts := $(ld_base) -flto
+cc_opts := $(cc_base) -Wall -Werror -flto -fPIC -O3
+ld_opts := $(ld_base) -Wall -Werror -flto -s
 else
 $(error "Unknown mode: %(mode)")
 endif
@@ -86,7 +86,7 @@ $(test) $(dep) $(out) $(obj):
 
 $(obj)/%.o: %.cpp | $(obj) $(dep)
 	@$(define_cc_proxy)
-	$(cc) $(cc_opts) $< -MMD -MF $(dep)/$*.d -MQ $@ -c -o $@
+	$(cc) $(cc_opts) -x c++ $< -MMD -MF $(dep)/$*.d -MQ $@ -c -o $@
 
 # Projects
 
