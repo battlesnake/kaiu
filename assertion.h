@@ -4,10 +4,12 @@
 #include <string>
 #include <tuple>
 #include <mutex>
+#include <chrono>
 
 namespace kaiu {
 
 using namespace std;
+using namespace std::chrono;
 
 class Assertions {
 public:
@@ -28,6 +30,7 @@ public:
 	void print_error();
 private:
 	using ensure_locked = const lock_guard<mutex>&;
+	time_point<steady_clock> start_time{steady_clock::now()};
 	mutex mx;
 	bool printed;
 	const vector<pair<const char *, const char *>> strings;

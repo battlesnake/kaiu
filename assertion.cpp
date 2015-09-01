@@ -2,11 +2,13 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <chrono>
 #include "assertion.h"
 
 namespace kaiu {
 
 using namespace std;
+using namespace std::chrono;
 
 Assertions::Assertions(const vector<pair<const char *, const char *>>& strings)
 	: printed(false), strings(strings)
@@ -125,6 +127,8 @@ void Assertions::_set(ensure_locked lock, const string& code, const result state
 
 int Assertions::_print(ensure_locked, bool always)
 {
+	const auto end_time = steady_clock::now();
+	duration<float, milli> msecs = end_time - start_time;
 	printed = true;
 	stringstream out;
 	stringstream fail_codes;
@@ -165,10 +169,11 @@ int Assertions::_print(ensure_locked, bool always)
 	if (count[unknown]) {
 		out << "     Missed: " << count[unknown] << endl;
 	}
+	out << "    Elapsed: " << msecs.count() << "ms" << endl;
 	if (always || count[failed] + count[skipped] + count[unknown] > 0) {
 		cout << out.rdbuf() << endl << endl;
 	} else {
-		cout << "\e[32m    [PASS]\e[37;4m  (all)\e[24m" << endl << endl;
+		cout << "\x1b[32m    [PASS]\x1b[37;4m  (all)\x1b[24m \x1b[35m" << msecs.count() << "ms" << "\x1b[37m" << endl << endl;
 	}
 	return count[failed] + count[unknown];
 }
