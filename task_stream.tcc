@@ -6,6 +6,8 @@ namespace kaiu {
 
 using namespace std;
 
+/*** AsyncPromiseStreamState ***/
+
 template <typename Result, typename Datum>
 AsyncPromiseStreamState<Result, Datum>::AsyncPromiseStreamState(
 	EventLoop& loop,
@@ -20,31 +22,33 @@ template <typename Result, typename Datum>
 void AsyncPromiseStreamState<Result, Datum>::call_data_callback(Datum& datum)
 {
 	auto functor = [this, datum = move(datum)] () mutable {
-		PromiseStreamState<Result, Datum>::call_data_callback(datum);
+		PromiseStreamState<Result, Datum>::call_data_callback(move(datum));
 	};
-	auto wrapper = detail::shared_functor<decltype(functor)>(functor);
+	auto wrapper = detail::make_shared_functor(move(functor));
 	loop.push(stream_pool, wrapper);
 }
 
 template <typename Result, typename Datum>
-function<void()> AsyncPromiseStreamState<Result, Datum>::bind_resolve(
-	Result&& result)
+auto AsyncPromiseStreamState<Result, Datum>::resolve_completer(Result&& result)
+	-> completer_func
 {
 	auto functor = PromiseStreamState<Result, Datum>::bind_resolve(move(result));
-	return [this, functor] {
+	return [this, functor = move(functor)] {
 		loop.push(react_pool, functor);
 	};
 }
 
 template <typename Result, typename Datum>
-function<void()> AsyncPromiseStreamState<Result, Datum>::bind_reject(
-	exception_ptr error)
+auto AsyncPromiseStreamState<Result, Datum>::reject_completer(exception_ptr error)
+	-> completer_func
 {
 	auto functor = PromiseStreamState<Result, Datum>::bind_reject(error);
-	return [this, functor] {
+	return [this, functor = move(functor)] {
 		loop.push(react_pool, functor);
 	};
 }
+
+/*** AsyncPromiseStream ***/
 
 template <typename Result, typename Datum>
 AsyncPromiseStream<Result, Datum>::AsyncPromiseStream(EventLoop& loop,
@@ -62,53 +66,73 @@ namespace promise {
 template <typename Result, typename Datum, typename... Args>
 UnboundTaskStream<Result, Datum, Args...> task_stream(
 	StreamFactory<Result, Datum, Args...> factory,
-	const EventLoopPool action_pool,
-	const EventLoopPool stream_pool,
+	const EventLoopPool producer_pool,
+	const EventLoopPool consumer_pool,
 	const EventLoopPool reaction_pool)
 {
-	auto newFactory = [factory, action_pool, stream_pool, reaction_pool]
-		(EventLoop& loop, Args... args) {
+	auto newFactory = [factory, producer_pool, consumer_pool, reaction_pool]
+		(EventLoop& loop, Args... args)
+	{
 		PromiseStream<Result, Datum> stream;
-		auto action = [factory, stream, stream_pool, reaction_pool, args...]
-			(EventLoop& loop) {
-			auto resolve = [stream, reaction_pool, &loop] (Result& result) {
-				auto proxy = [stream, result = move(result)] (EventLoop&) mutable {
-					stream->resolve(move(result));
-				};
-				loop.push(reaction_pool, detail::make_shared_functor(proxy));
+		auto resolve = [stream, reaction_pool, &loop] (Result& result) -> void
+		{
+			auto proxy = [stream, result = move(result)]
+				(EventLoop&) mutable -> void
+			{
+				stream->resolve(move(result));
 			};
-			auto reject = [stream, reaction_pool, &loop] (exception_ptr error) {
-				auto proxy = [stream, error] (EventLoop&) {
-					stream->reject(error);
-				};
-				loop.push(reaction_pool, proxy);
+			loop.push(reaction_pool, detail::make_shared_functor(proxy));
+		};
+		auto reject = [stream, reaction_pool, &loop] (exception_ptr error) -> void
+		{
+			auto proxy = [stream, error] (EventLoop&) -> void
+			{
+				stream->reject(error);
 			};
-			auto data = [stream, stream_pool, &loop, resolve, reject] (Datum& datum) {
-				auto proxy = [stream, datum = move(datum)] (EventLoop&) mutable {
+			loop.push(reaction_pool, proxy);
+		};
+		auto consumer = [stream, consumer_pool, &loop, resolve, reject]
+			(Datum& datum) -> Promise<StreamAction>
+		{
+			Promise<StreamAction> consumer_action;
+			auto proxy = [stream, consumer_action, datum = move(datum)]
+				(EventLoop&) mutable -> void
+			{
+				try {
 					stream->write(move(datum));
-				};
-				loop.push(stream_pool, detail::make_shared_functor(proxy));
+				} catch (...) {
+					consumer_action->reject(current_exception());
+					return;
+				}
+				consumer_action->resolve(stream->data_action());
 			};
-			factory(args...)
-				->template stream<void>(data)
+			loop.push(consumer_pool, detail::make_shared_functor(proxy));
+			return consumer_action;
+		};
+		auto producer = [stream, producer_pool, &loop,
+			factory, args..., consumer, resolve, reject]
+			(EventLoop&) mutable -> void
+		{
+			factory(forward<Args>(args)...)
+				->stream(consumer)
 				->then(resolve, reject);
 		};
-		loop.push(action_pool, action);
+		loop.push(producer_pool, detail::make_shared_functor(producer));
 		return stream;
 	};
-	return Curry<Promise<Result>, sizeof...(Args) + 1, Factory<Result, EventLoop&, Args...>>(newFactory);
+	return Curry<PromiseStream<Result, Datum>, sizeof...(Args) + 1, StreamFactory<Result, Datum, EventLoop&, Args...>>(newFactory);
 }
 
 template <typename Result, typename Datum, typename... Args>
 UnboundTaskStream<Result, Datum, Args...> task_stream(
 	PromiseStream<Result, Datum> (&factory)(Args...),
-	const EventLoopPool action_pool,
-	const EventLoopPool stream_pool,
+	const EventLoopPool producer_pool,
+	const EventLoopPool consumer_pool,
 	const EventLoopPool reaction_pool)
 {
 	return task_stream(
 		StreamFactory<Result, Datum, Args...>{factory},
-		action_pool, stream_pool, reaction_pool);
+		producer_pool, consumer_pool, reaction_pool);
 }
 
 }

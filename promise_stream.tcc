@@ -15,21 +15,21 @@ using namespace std;
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::resolve(Result&& result)
 {
-	lock_guard<mutex> lock(mx);
+	auto lock = get_lock();
 	do_resolve(lock, forward<Result>(result));
 }
 
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::reject(exception_ptr error)
 {
-	lock_guard<mutex> lock(mx);
+	auto lock = get_lock();
 	do_reject(lock, error, false);
 }
 
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::reject(const string& error)
 {
-	lock_guard<mutex> lock(mx);
+	auto lock = get_lock();
 	do_reject(lock, make_exception_ptr(runtime_error(error)), false);
 }
 
@@ -38,10 +38,10 @@ template <typename... Args>
 void PromiseStreamState<Result, Datum>::write(Args&&... args)
 {
 	{
-		lock_guard<mutex> lock(mx);
+		auto lock = get_lock();
 		if (get_action(lock) == StreamAction::Continue) {
 			emplace_data(lock, forward<Args>(args)...);
-			set_written_to(lock);
+			set_stream_has_been_written_to(lock);
 		}
 	}
 	process_data();
@@ -64,8 +64,8 @@ template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::set_data_callback(DataFunc data_callback)
 {
 	{
-		lock_guard<mutex> lock(mx);
-#if defined(DEBUG)
+		auto lock = get_lock();
+#if defined(SAFE_PROMISE_STREAMS)
 		if (on_data != nullptr) {
 			throw logic_error("Callbacks are already assigned");
 		}
@@ -74,8 +74,9 @@ void PromiseStreamState<Result, Datum>::set_data_callback(DataFunc data_callback
 		}
 #endif
 		on_data = data_callback;
+		set_data_callback_assigned(lock);
 	}
-	set_data_callback_assigned();
+	process_data();
 }
 
 template <typename Result, typename Datum>
@@ -110,13 +111,24 @@ Promise<pair<State, Result>> PromiseStreamState<Result, Datum>::
 }
 
 template <typename Result, typename Datum>
-Promise<Result> PromiseStreamState<Result, Datum>::
-	always(ensure_locked lock, const StreamAction action)
+Promise<Result> PromiseStreamState<Result, Datum>::always(StreamAction action)
 {
 	auto consumer = [action] (Datum& datum) {
 		return promise::resolved(action);
 	};
-	return do_stream(lock, consumer);
+	return do_stream(consumer);
+}
+
+template <typename Result, typename Datum>
+Promise<Result> PromiseStreamState<Result, Datum>::discard()
+{
+	return always(StreamAction::Discard);
+}
+
+template <typename Result, typename Datum>
+Promise<Result> PromiseStreamState<Result, Datum>::stop()
+{
+	return always(StreamAction::Stop);
 }
 
 template <typename Result, typename Datum>
@@ -143,27 +155,41 @@ void PromiseStreamState<Result, Datum>::process_data()
 {
 	Datum datum;
 	{
-		lock_guard<mutex> lock(mx);
+		auto lock = get_lock();
 		auto state = get_state(lock);
+		/* Wrong state */
 		if (state != stream_state::streaming1 && state != stream_state::streaming2) {
 			return;
 		}
+		/* No consumer assigned yet */
 		if (on_data == nullptr) {
 			return;
 		}
-		if (is_consumer_running(lock)) {
+		/* Don't run the consumer multiple time simultaneously */
+		if (get_consumer_is_running(lock)) {
 			return;
 		}
 		if (get_action(lock) != StreamAction::Continue) {
 			decltype(buffer)().swap(buffer);
 		}
-		if (!has_data(lock)) {
-			update_state(lock);
+		if (buffer.empty()) {
+			/*
+			 * When removing the last data from the buffer, this call must occur
+			 * AFTER set_consumer_is_running(lock, true).  Since we do not call
+			 * set_buffer_is_empty on removing the last data from the buffer,
+			 * but instead we call it after the last data has been processed,
+			 * this is not a problem for us.
+			 */
+			set_buffer_is_empty(lock);
 			return;
 		}
 		datum = move(buffer.front());
 		buffer.pop();
-		set_consumer_running(lock, true);
+		/*
+		 * call_data_callback MUST set this to false after the consumer has run
+		 * or if it fails to start
+		 */
+		set_consumer_is_running(lock, true);
 	}
 	/*
 	 * Thread-safe, as we (within the previous lock) check whether on_data has
@@ -186,20 +212,20 @@ void PromiseStreamState<Result, Datum>::call_data_callback(Datum& datum) try {
 		->then(
 			[this] (const StreamAction action) {
 				{
-					lock_guard<mutex> lock(mx);
+					auto lock = get_lock();
 					set_action(lock, action);
-					set_consumer_running(lock, false);
+					set_consumer_is_running(lock, false);
 				}
 				process_data();
 			},
 			[this] (exception_ptr error) {
-				lock_guard<mutex> lock(mx);
+				auto lock = get_lock();
 				do_reject(lock, error, true);
-				set_consumer_running(lock, false);
+				set_consumer_is_running(lock, false);
 			});
 } catch (...) {
-	lock_guard<mutex> lock(mx);
-	set_consumer_running(lock, false);
+	auto lock = get_lock();
+	set_consumer_is_running(lock, false);
 	/* Rethrowing is implicit since this is a function-try-catch block */
 	throw;
 }
@@ -207,16 +233,14 @@ void PromiseStreamState<Result, Datum>::call_data_callback(Datum& datum) try {
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::do_resolve(ensure_locked lock, Result&& result)
 {
-	set_completer(lock, stream_result::resolved, resolve_completer(move(result)));
-	update_state(lock);
+	set_stream_result(lock, stream_result::resolved, resolve_completer(move(result)));
 }
 
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::do_reject(ensure_locked lock, exception_ptr error, bool consumer_failed)
 {
-	set_completer(lock, consumer_failed ? stream_result::consumer_failed : stream_result::rejected, reject_completer(error));
 	set_action(lock, StreamAction::Stop);
-	update_state(lock);
+	set_stream_result(lock, consumer_failed ? stream_result::consumer_failed : stream_result::rejected, reject_completer(error));
 }
 
 template <typename Result, typename Datum>
@@ -244,7 +268,6 @@ template <typename, typename Consumer>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 	-> stream_sel<Consumer, result_of_promise_is, Result, Datum&>
 {
-	lock_guard<mutex> lock(mx);
 	return do_stream(consumer);
 }
 
@@ -279,19 +302,6 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args
 		return promise::resolved<StreamAction>(consumer(state, datum));
 	};
 	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
-}
-
-template <typename Result, typename Datum>
-Promise<Result> PromiseStreamState<Result, Datum>::discard()
-{
-	return always(lock, StreamAction::Discard);
-}
-
-template <typename Result, typename Datum>
-Promise<Result> PromiseStreamState<Result, Datum>::stop()
-{
-	lock_guard<mutex> lock(mx);
-	return always(lock, StreamAction::Stop);
 }
 
 /*** PromiseStream ***/

@@ -7,6 +7,11 @@
 #include <type_traits>
 #include <mutex>
 #include "promise.h"
+#include "self_managing.h"
+
+#if defined(DEBUG)
+#define SAFE_PROMISE_STREAMS
+#endif
 
 namespace kaiu {
 
@@ -21,7 +26,7 @@ enum class StreamAction {
 template <typename Result, typename Datum>
 class PromiseStream;
 
-class PromiseStreamStateBase : public enable_shared_from_this<PromiseStreamStateBase> {
+class PromiseStreamStateBase : public self_managing {
 public:
 	/* Default constructor */
 	PromiseStreamStateBase() = default;
@@ -29,17 +34,18 @@ public:
 	PromiseStreamStateBase(const PromiseStreamStateBase&) = delete;
 	PromiseStreamStateBase(PromiseStreamStateBase&&) = delete;
 	/* Destructor */
-#if defined(DEBUG)
-	virtual ~PromiseStreamStateBase() noexcept(false);
-#else
-	virtual ~PromiseStreamStateBase() = default;
+#if defined(SAFE_PROMISE_STREAMS)
+	~PromiseStreamStateBase() noexcept(false);
 #endif
 	/* Stop has been requested by consumer */
 	bool is_stopping() const;
 	StreamAction data_action() const;
 protected:
-	using ensure_locked = lock_guard<mutex>&;
-	mutable mutex mx;
+	/* Data action (set by consumer, read by producer) */
+	void set_action(ensure_locked, StreamAction);
+	StreamAction get_action(ensure_locked) const;
+	/* Called when on_data callback has been assigned */
+	void set_data_callback_assigned(ensure_locked);
 	/*
 	 * Promise stream states:
 	 *
@@ -87,51 +93,48 @@ protected:
 	 *     D→E: consumer not running (& buffer empty & result & written)
 	 *
 	 */
-	enum class stream_state { pending, streaming1, streaming2, streaming3, completed };
 	/* Get the state */
+	enum class stream_state { pending, streaming1, streaming2, streaming3, completed };
 	stream_state get_state(ensure_locked) const;
+	/* Stream result type */
+	enum class stream_result { pending, resolved, rejected, consumer_failed };
+	using completer_func = function<void(ensure_locked)>;
+	/* A→B: When stream has been written to */
+	void set_stream_has_been_written_to(ensure_locked);
+	/* B→C, A→E: When result has been bound */
+	void set_stream_result(ensure_locked, stream_result, completer_func);
+	/* C→D: When buffer is empty */
+	void set_buffer_is_empty(ensure_locked);
+	/* D→E: When consumer is not running */
+	void set_consumer_is_running(ensure_locked, bool);
+	bool get_consumer_is_running(ensure_locked) const;
+	/*
+	 * Note: When taking the last data from the
+	 * buffer,
+	 *   set_consumer_is_running(lock, true)
+	 * must be called BEFORE
+	 *   set_buffer_is_empty(lock)
+	 */
+private:
 	/* Re-applies the current state, advances to next state if possible */
 	void update_state(ensure_locked);
-	/* A→B: Has stream been written to? */
-	void set_written_to(ensure_locked);
-	bool is_written_to(ensure_locked) const;
-	/* B→C: Is any data queued in the buffer? */
-	virtual bool has_data(ensure_locked) const = 0;
-	/* C→D: Is consumer currently being called? */
-	void set_consumer_running(ensure_locked, const bool);
-	bool is_consumer_running(ensure_locked) const;
-	/* [AD]→E: Result has been bound */
-	using completer_func = function<void(ensure_locked)>;
-	enum class stream_result { resolved, rejected, consumer_failed };
-	void set_completer(ensure_locked, stream_result, completer_func);
-	bool has_completer(ensure_locked) const;
-	/* Data action (set by consumer, read by producer) */
-	void set_action(ensure_locked, const StreamAction);
-	StreamAction get_action(ensure_locked) const;
-	/* Called when on_data callback has been assigned */
-	void set_data_callback_assigned();
-	/* Called to start streaming data (find to call multiple times) */
-	virtual void process_data() = 0;
-private:
 	/* Stream state */
 	stream_state state{stream_state::pending};
 	/* Validates state transitions */
-	void set_state(ensure_locked, const stream_state);
+	void set_state(ensure_locked, stream_state);
 	/* Action requested by consumer */
 	StreamAction action{StreamAction::Continue};
 	/* Stream has been written to */
-	bool written_to{false};
+	bool stream_has_been_written_to{false};
+	/* Buffer is empty */
+	bool buffer_is_empty{true};
 	/* Has an on_data callback been assigned (in derived class)? */
 	bool data_callback_assigned{false};
 	/* Is consumer running */
 	bool consumer_is_running{false};
 	/* Called on completion (bool stores if completer represents rejection) */
 	completer_func completer{nullptr};
-	stream_result result;
-	/* Self-locking to prevent self-destruction */
-	shared_ptr<PromiseStreamStateBase> self_reference{nullptr};
-	void lock_self();
-	void unlock_self();
+	stream_result result{stream_result::pending};
 };
 
 template <typename Result, typename Datum>
@@ -156,6 +159,7 @@ public:
 	PromiseStreamState() = default;
 	PromiseStreamState(const PromiseStreamState&) = delete;
 	PromiseStreamState(PromiseStreamState&&) = delete;
+	virtual ~PromiseStreamState() = default;
 	/*
 	 * Bind callback for receiving data
 	 *
@@ -239,7 +243,7 @@ public:
 		stream(Consumer consumer, Args&&... args);
 protected:
 	/* Is data queued? */
-	virtual bool has_data(ensure_locked) const override;
+	bool has_data(ensure_locked) const;
 	/* Call the on_data callback */
 	virtual void call_data_callback(Datum&);
 	/* Bind resolve/reject dispatchers */
@@ -249,7 +253,7 @@ protected:
 	/* Promise proxy for result of streaming operation */
 	Promise<Result> proxy_promise;
 private:
-	Promise<Result> always(ensure_locked, const StreamAction);
+	Promise<Result> always(StreamAction);
 	using stream_consumer = function<Promise<StreamAction>(Datum&)>;
 	template <typename State>
 	using stateful_stream_consumer =
@@ -268,7 +272,7 @@ private:
 	DataFunc on_data{nullptr};
 	void set_data_callback(DataFunc);
 	/* Call consumer */
-	virtual void process_data() override;
+	void process_data();
 	/* Capture value and set resolve/reject completer */
 	void do_resolve(ensure_locked, Result&&);
 	void do_reject(ensure_locked, exception_ptr, bool consumer_failed);

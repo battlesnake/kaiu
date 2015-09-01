@@ -138,10 +138,11 @@ insanely long parameter lists, by composing lazy-evaluated functions out of
 more lazy-evaluated functions, each of which are bound to only the parameters
 which they require.
 
-Monads
-------
+bind
+----
 
-If `enable_monads` is #define'd then a monad operator will be defined.
+If `ENABLE_FUNCTIONAL_BIND` is #define'd then a horribly comma operator overload
+will be defined.
 
 Given:
 
@@ -176,11 +177,10 @@ Which is equivalent to:
 	print("Should be 6", sqrt(addition(9, square(hypot(4, 3)))));
 
 Although more readable for one-liners, whether it is actually a good idea to use
-the monad operator is a decision° that I leave to you.
+this operator is a decision° that I leave to you.
 
-° of course it isn't a good idea, that's why you need a preprocessor definition
-  to enable it!
+° of course it isn't a good idea - we're overloading the comma FFS!
 
-The monad operator requires that the right-hand-side operand is a curried
-function with remaining arity of 1 (i.e. it requires one more argument before it
-can be evaluated).
+The bind operator requires that the right-hand-side operand is a curried
+function with remaining arity of 1 (i.e. it requires exactly one more argument
+before it can be evaluated).

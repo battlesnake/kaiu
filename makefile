@@ -112,7 +112,7 @@ $(test)/decimal: $(obj)/decimal.o
 
 $(test)/promise_stream: $(obj)/promise_stream.o $(obj)/promise.o
 
-$(test)/task_stream: $(obj)/promise.o $(obj)/promise_stream.o $(obj)/task.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+$(test)/task_stream: $(obj)/promise.o $(obj)/promise_stream.o $(obj)/event_loop.o $(obj)/starter_pistol.o
 
 # Test binaries
 

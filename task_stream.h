@@ -10,11 +10,6 @@ using namespace std;
 /*
  * PromiseStream which calls callbacks (data/resolve/reject) in specified
  * threads in a thread pool
- *
- * This class is the reason that PromiseStreamState has a vtable, and if this
- * class doesn't look to have much value then I may remove it and revert
- * PromiseStreamState back to having no vtable.  Performance difference will be
- * negligible, the motivation is just for keeping things simple and minimal.
  */
 
 template <typename Result, typename Datum>
@@ -24,11 +19,11 @@ public:
 	AsyncPromiseStreamState(EventLoop& loop,
 		const EventLoopPool stream_pool,
 		const EventLoopPool react_pool = EventLoopPool::same);
-	virtual ~AsyncPromiseStreamState() = default;
 protected:
 	virtual void call_data_callback(Datum&) override;
-	virtual function<void()> bind_resolve(Result&& result) override;
-	virtual function<void()> bind_reject(exception_ptr error) override;
+	using completer_func = typename PromiseStreamState<Result, Datum>::completer_func;
+	virtual completer_func resolve_completer(Result&&) override;
+	virtual completer_func reject_completer(exception_ptr) override;
 private:
 	EventLoop& loop;
 	EventLoopPool stream_pool;
@@ -59,15 +54,15 @@ using BoundTaskStream = Curried<PromiseStream<Result, Datum>, sizeof...(Args) + 
 template <typename Result, typename Datum, typename... Args>
 UnboundTaskStream<Result, Datum, Args...> task_stream(
 	StreamFactory<Result, Datum, Args...> factory,
-	const EventLoopPool action_pool,
-	const EventLoopPool stream_pool,
+	const EventLoopPool producer_pool,
+	const EventLoopPool consumer_pool = EventLoopPool::same,
 	const EventLoopPool reaction_pool = EventLoopPool::same);
 
 template <typename Result, typename Datum, typename... Args>
 UnboundTaskStream<Result, Datum, Args...> task_stream(
 	PromiseStream<Result, Datum> (&factory)(Args...),
-	const EventLoopPool action_pool,
-	const EventLoopPool stream_pool,
+	const EventLoopPool producer_pool,
+	const EventLoopPool consumer_pool = EventLoopPool::same,
 	const EventLoopPool reaction_pool = EventLoopPool::same);
 
 }
