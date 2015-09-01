@@ -46,8 +46,8 @@ void do_async_nonblock(function<void()> op)
 	auto func = [op] () noexcept {
 		try {
 			op();
-		} catch (exception e) {
-			assert.print(e);
+		} catch (...) {
+			assert.print_error();
 		}
 	};
 	thread(func).detach();

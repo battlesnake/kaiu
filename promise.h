@@ -113,8 +113,6 @@ class PromiseStateBase;
 
 template <typename Result> class PromiseState;
 
-class PromiseBase;
-
 template <typename Result> class Promise;
 
 /***
@@ -122,7 +120,8 @@ template <typename Result> class Promise;
  *
  * Example usage: enable_if<is_promise<T>::value>::type
  *
- * Could use is_base_of with PromiseBase, this way seems more idiomatic.
+ * Could use is_base_of with PromiseBase (a since deleted base class), this way
+ * seems more idiomatic.
  */
 
 template <typename T>
@@ -136,6 +135,69 @@ public:
 	static constexpr auto value = decltype(check<T>(0))::value;
 };
 
+namespace detail {
+	template <bool, typename T> struct result_of_promise_helper { };
+	template <typename T> struct result_of_promise_helper<true, T>
+		{ using type = typename T::result_type; };
+	template <bool, typename T> struct result_of_not_promise_helper { };
+	template <typename T> struct result_of_not_promise_helper<false, T>
+		{ using type = T; };
+}
+
+/* result_of_promise<T>: is_promise<T> ? T::result_type : fail */
+template <typename T>
+using result_of_promise = detail::result_of_promise_helper<is_promise<T>::value, T>;
+
+/* result_of_not_promise<T>: is_promise<T> ? fail : T */
+template <typename T>
+using result_of_not_promise = detail::result_of_not_promise_helper<is_promise<T>::value, T>;
+
+/* is_promise<T> && R==T::result_type */
+template <typename T, typename R>
+struct result_of_promise_is {
+private:
+	template <typename U>
+	static is_same<typename result_of_promise<U>::type, typename remove_cv<R>::type> check(int);
+	template <typename>
+	static std::false_type check(...);
+public:
+	static constexpr auto value = decltype(check<T>(0))::value;
+};
+
+/* !is_promise<T> && R==T */
+template <typename T, typename R>
+struct result_of_not_promise_is {
+private:
+	template <typename U>
+	static is_same<typename result_of_not_promise<U>::type, typename remove_cv<R>::type> check(int);
+	template <typename>
+	static std::false_type check(...);
+public:
+	static constexpr auto value = decltype(check<T>(0))::value;
+};
+
+/*
+ * Result type of a promise cannot derive from (or be) PromiseLike.
+ *
+ * TODO:
+ *   Automatically transform Promise<PromiseLike>
+ *     to
+ *   Promise<typename result_of_promise<PromiseLike>::type>
+ *     via forward_to(...) method of PromiseLike
+ *     when PromiseLike is specified as return type of a Promise
+ *
+ * PromiseLike should support ->resolve ->reject ->forward_to:
+ *   void resolve(T&&)
+ *   void reject(exception_ptr)
+ *   void reject(const string&)
+ *   void forward_to(PromiseLike)
+ */
+class PromiseLike {
+};
+
+template <typename T>
+using is_promise_like = is_base_of<PromiseLike, T>;
+
 /***
  * Promise class
  *
@@ -143,11 +205,8 @@ public:
  * type must not throw - promise chains guarantees will break.
  */
 
-class PromiseBase {
-};
-
 template <typename Result>
-class Promise : public PromiseBase {
+class Promise : public PromiseLike {
 	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
 	static_assert(!is_promise<Result>::value, "Promise<Promise<T>> is invalid, use Promise<T> instead");
 public:
@@ -155,7 +214,7 @@ public:
 	using RResult = DResult&;
 	using XResult = DResult&&;
 	static constexpr bool is_promise = true;
-	using result_type = Result;
+	using result_type = DResult;
 	/* Promise */
 	Promise();
 	/* Copy/move/cast constructors */
@@ -169,7 +228,6 @@ public:
 	/* Access promise state (then/except/finally/resolve/reject) */
 	PromiseState<DResult> *operator ->() const;
 private:
-	friend class PromiseState<DResult>;
 	friend class Promise<DResult>;
 	friend class Promise<RResult>;
 	friend class Promise<XResult>;
@@ -177,8 +235,14 @@ private:
 	shared_ptr<PromiseState<DResult>> promise;
 };
 
-static_assert(is_promise<Promise<int>>::value, "is_promise failed (test 1)");
-static_assert(!is_promise<int>::value, "is_promise failed (test 2)");
+static_assert(is_promise<Promise<int>>::value, "Promise traits test #1 failed");
+static_assert(!is_promise<int>::value, "Promise traits test #2 failed");
+static_assert(result_of_promise_is<Promise<int>, int>::value, "Promise traits test #3 failed");
+static_assert(!result_of_promise_is<Promise<int>, long>::value, "Promise traits test #4 failed");
+static_assert(!result_of_promise_is<int, int>::value, "Promise traits test #5 failed");
+static_assert(result_of_not_promise_is<int, int>::value, "Promise traits test #6 failed");
+static_assert(!result_of_not_promise_is<int, long>::value, "Promise traits test #7 failed");
+static_assert(!result_of_not_promise_is<Promise<int>, int>::value, "Promise traits test #8 failed");
 
 /***
  * Untyped promise state
@@ -190,7 +254,7 @@ public:
 	void reject(exception_ptr error);
 	void reject(const string& error);
 	/* Default constructor */
-	PromiseStateBase();
+	PromiseStateBase() = default;
 	/* No copy/move constructor */
 	PromiseStateBase(PromiseStateBase const&) = delete;
 	PromiseStateBase(PromiseStateBase&&) = delete;
@@ -205,20 +269,49 @@ protected:
 	 * All protected functions require a lock_guard to have been acquired on the
 	 * state_lock, this is enforced via a reference parameter that the compiler
 	 * should be able to happily optimize out.
-	 * TODO: Remove the lock-passing sanity-check before release.
+	 *
+	 * TODO: Remove the lock-passing sanity-check before release, unless we can
+	 * be certain that the compiler/linker will do it for us.
 	 */
 	using ensure_locked = lock_guard<mutex> const &;
-	mutex state_lock;
+	mutable mutex state_lock;
 	/*
-	 * State transitions for a promise:
+	 * Promise states:
 	 *
-	 *  no result  |  has result    |  relevant callback(s)
-	 *  or error   |  value/error   |  have been called
-	 *             |                |
+	 *    ┌───────────┬──────────┬──────────┬──────────┐
+	 *    │  Name of  │  Has a   │  Has an  │ Callback │
+	 *    │   state   │  result  │  error   │  called  │
+	 *    ├———————————┼——————————┼——————————┼——————————┤
+	 *  A │pending    │ no       │ no       │ (no)     │
+	 *  B │resolved   │ yes      │ (no)     │ no       │
+	 *  C │rejected   │ (no)     │ yes      │ no       │
+	 *  D │completed  │ *        │ *        │ yes      │
+	 *    └───────────┴──────────┴──────────┴──────────┘
 	 *
-	 *              --> resolved -->
-	 *  pending -->|                |--> completed
-	 *              --> rejected -->
+	 *       * = don't care (any value)
+	 *   (val) = value is implicit, enforced due to value of some other field
+	 *
+	 * State transition graph:
+	 *
+	 *       ┌──▶ B ──┐
+	 *   A ──┤        ├──▶ D
+	 *       └──▶ C ──┘
+	 *
+	 * State descriptions/conditions:
+	 *
+	 *   A: pending
+	 *     initial state, nothing done
+	 *
+	 *   B: resolved
+	 *     promise represents a successful operation, a result value has been
+	 *     assigned
+	 *
+	 *   C: rejected
+	 *     promise represents a failed operation, an error has been assigned
+	 *
+	 *   D: completed
+	 *     promise has been resolved/rejected, then the appropriate callback has
+	 *     been called
 	 *
 	 */
 	enum class promise_state { pending, rejected, resolved, completed };
@@ -233,7 +326,7 @@ protected:
 	void set_callbacks(ensure_locked, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject);
 	/* Get/set rejection result */
 	void set_error(ensure_locked, exception_ptr error);
-	exception_ptr& get_error(ensure_locked);
+	exception_ptr get_error(ensure_locked) const;
 	/* Make this promise a terminator */
 	void set_terminator(ensure_locked);
 private:
@@ -288,6 +381,8 @@ private:
  *
  */
 
+/* TODO: Allow Promise to take multiple result types, and store as tuple */
+
 template <typename Result>
 class PromiseState : public PromiseStateBase {
 public:
@@ -315,7 +410,8 @@ public:
 	/* Reject */
 	using PromiseStateBase::reject;
 	/* Forwards the result of this promise to another promise */
-	void forward_to(Promise<Result> next);
+	template <typename NextPromise>
+	void forward_to(NextPromise next);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
 	using ThenResult = typename result_of<Next(Result&)>::type;
@@ -369,7 +465,7 @@ public:
 		>::type>
 	Promise<NextResult> except(
 		Except /* ExceptFunc<Promise<NextResult>> */ except_func)
-			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); };
+			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); }
 	template <
 		typename Except,
 		typename NextResult = typename result_of<Except(exception_ptr)>::type,
@@ -379,7 +475,7 @@ public:
 		>::type>
 	Promise<NextResult> except(
 		Except /* ExceptFunc<NextResult> */ except_func)
-			{ return then<NextFunc<NextResult>>(nullptr, except_func); };
+			{ return then<NextFunc<NextResult>>(nullptr, except_func); }
 	/* Except (end promise chain) */
 	template <
 		typename Except,
@@ -389,16 +485,16 @@ public:
 		>::type>
 	void except(
 		Except /* ExceptVoidFunc */ except_func)
-			{ then<void>(nullptr, except_func); };
+			{ then<void>(nullptr, except_func); }
 	/* Finally */
 	template <typename Finally>
 	Promise<Result> finally(
 		Finally /* FinallyFunc */ finally_func)
-			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); };
+			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); }
 	/* Make terminator with finalizer */
 	template <typename Finally>
 	void finish(Finally /* FinallyFunc */ finally_func)
-		{ finally(finally_func)->finish(); };
+		{ finally(finally_func)->finish(); }
 	using PromiseStateBase::finish;
 protected:
 	/* Get/set promise result */

@@ -300,7 +300,7 @@ struct HeterogenousCombineState {
 			return;
 		}
 		get<index>(results) = move(result);
-	};
+	}
 	void handler(exception_ptr error) {
 		{
 			lock_guard<mutex> lock(state_lock);
@@ -310,7 +310,7 @@ struct HeterogenousCombineState {
 			failed = true;
 		}
 		nextPromise->reject(error);
-	};
+	}
 	void finally() {
 		bool resolved;
 		{
@@ -321,7 +321,7 @@ struct HeterogenousCombineState {
 		if (resolved) {
 			nextPromise->resolve(move(results));
 		}
-	};
+	}
 };
 
 /* Functor which binds a single promise to shared state */
@@ -336,7 +336,7 @@ struct HeterogenousCombineIterator {
 			bind(&State::template next<Result, index>, state, placeholders::_1),
 			bind(&State::handler, state, placeholders::_1),
 			bind(&State::finally, state));
-	};
+	}
 };
 
 template <typename... Result>
@@ -374,7 +374,7 @@ struct HomogenousCombineState {
 			return;
 		}
 		results[index] = move(result);
-	};
+	}
 	void handler(exception_ptr error) {
 		{
 			lock_guard<mutex> lock(state_lock);
@@ -384,7 +384,7 @@ struct HomogenousCombineState {
 			failed = true;
 		}
 		nextPromise->reject(error);
-	};
+	}
 	void finally() {
 		bool resolved;
 		{
@@ -395,7 +395,7 @@ struct HomogenousCombineState {
 		if (resolved) {
 			nextPromise->resolve(move(results));
 		}
-	};
+	}
 };
 
 /* Binds a single promise to shared state */
@@ -411,7 +411,7 @@ struct HomogenousCombineIterator {
 		typename Events::ExceptVoidFunc handler{bind(&State::handler, state, _1)};
 		typename Events::FinallyFunc finally{bind(&State::finally, state)};
 		promise->then(next, handler, finally);
-	};
+	}
 };
 
 template <typename It, typename Result>
