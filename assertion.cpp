@@ -57,13 +57,13 @@ void Assertions::print_error()
 	try {
 		rethrow_exception(ptr);
 	} catch (const logic_error& error) {
-		cout << "\e[1;31mLogic error: \e[22m" << error.what() << "\e[37m" << endl;
+		cout << "\x1b[1;31mLogic error: \x1b[22m" << error.what() << "\x1b[37m" << endl;
 	} catch (const runtime_error& error) {
-		cout << "\e[1;31mRuntime error: \e[22m" << error.what() << "\e[37m" << endl;
+		cout << "\x1b[1;31mRuntime error: \x1b[22m" << error.what() << "\x1b[37m" << endl;
 	} catch (const exception& error) {
-		cout << "\e[1;31mException: \e[22m" << error.what() << "\e[37m" << endl;
+		cout << "\x1b[1;31mException: \x1b[22m" << error.what() << "\x1b[37m" << endl;
 	} catch(...) {
-		cout << "\e[1;31mError of unknown type\e[37m" << endl;
+		cout << "\x1b[1;31mError of unknown type\x1b[37m" << endl;
 	}
 	print(true);
 }
@@ -103,7 +103,7 @@ auto Assertions::_get(ensure_locked, const string& code)
 try {
 	return list.at(code);
 } catch (const out_of_range& e) {
-	cout << "\e[1;31mUnknown assertion: \e[22m" << code << "\e[37m" << endl;
+	cout << "\x1b[1;31mUnknown assertion: \x1b[22m" << code << "\x1b[37m" << endl;
 	throw;
 }
 
@@ -117,7 +117,7 @@ void Assertions::_set(ensure_locked lock, const string& code, const result state
 			if (target.second.empty()) {
 				target = make_pair(state, note);
 			} else {
-				target.second += " \e[1malso\e[22m " + note;
+				target.second += " \x1b[1malso\x1b[22m " + note;
 			}
 		}
 	} else {
@@ -138,25 +138,25 @@ int Assertions::_print(ensure_locked, bool always)
 		const auto& title = string.second;
 		if (code == nullptr) {
 			out << endl
-				<< "  \e[97m" << title << "\e[37m" << endl;
+				<< "  \x1b[97m" << title << "\x1b[37m" << endl;
 			continue;
 		}
 		const auto& result = list[code].first;
 		const auto& note = list[code].second;
 		count[result]++;
 		if (result == passed) {
-			out << "\e[32m    [PASS]\e[37;4m  " << title << "\e[24m";
+			out << "\x1b[32m    [PASS]\x1b[37;4m  " << title << "\x1b[24m";
 		} else if (result == failed) {
-			out << "\e[31m    [FAIL]\e[37m  " << title;
+			out << "\x1b[31m    [FAIL]\x1b[37m  " << title;
 			fail_codes << "  " << code;
 		} else if (result == skipped) {
-			out << "\e[33m    [SKIP]\e[37m  " << title;
+			out << "\x1b[33m    [SKIP]\x1b[37m  " << title;
 		} else if (result == unknown) {
-			out << "\e[31m    [MISS]\e[37m  " << title;
+			out << "\x1b[31m    [MISS]\x1b[37m  " << title;
 			fail_codes << "  " << code;
 		}
 		if (!note.empty()) {
-			out << " \e[35m" << note << "\e[37m";
+			out << " \x1b[35m" << note << "\x1b[37m";
 		}
 		out << endl;
 	}
