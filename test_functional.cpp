@@ -109,7 +109,7 @@ void cross_thread_currying()
 				[] (int z) {
 					assert.expect(z, 5, "ACR");
 				},
-				[] (auto& e) {
+				[] (auto e) {
 					assert.fail("ACR");
 				});
 		int x = 5, y = 12;
@@ -120,7 +120,7 @@ void cross_thread_currying()
 				[] (int z) {
 					assert.expect(z, 5, "ACL");
 				},
-				[] (auto& e) {
+				[] (auto e) {
 					assert.fail("ACL");
 				});
 	}
@@ -130,7 +130,7 @@ void cross_thread_currying()
 			[] (int z) {
 				assert.expect(z, 5, "AOCR");
 			},
-			[] (auto& e) {
+			[] (auto e) {
 				assert.fail("AOCR");
 			});
 		int x = 5, y = 4;
@@ -140,7 +140,7 @@ void cross_thread_currying()
 			[] (int z) {
 				assert.expect(z, 5, "AOCL");
 			},
-			[] (auto& e) {
+			[] (auto e) {
 				assert.fail("AOCL");
 			});
 	}
@@ -150,7 +150,7 @@ void cross_thread_currying()
 			[] (int z) {
 				assert.expect(z, 5, "SHCR");
 			},
-			[] (auto& e) {
+			[] (auto e) {
 				assert.fail("SHCR");
 			});
 		int x = 5, y = 12;
@@ -160,7 +160,7 @@ void cross_thread_currying()
 			[] (int z) {
 				assert.expect(z, 13, "SHCL");
 			},
-			[] (auto& e) {
+			[] (auto e) {
 				assert.fail("SHCL");
 			});
 	}
@@ -172,7 +172,7 @@ void cross_thread_currying()
 			[] (int z) {
 				assert.expect(z, 37, "SHCWL");
 			},
-			[] (auto& e) {
+			[] (auto e) {
 				assert.fail("SHCWL");
 			});
 	}

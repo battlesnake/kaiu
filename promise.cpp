@@ -7,10 +7,6 @@ using namespace std;
 
 /*** PromiseStateBase ***/
 
-PromiseStateBase::PromiseStateBase()
-{
-}
-
 #if defined(DEBUG)
 PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
@@ -22,18 +18,9 @@ PromiseStateBase::~PromiseStateBase() noexcept(false)
 	if (std::uncaught_exception()) {
 		return;
 	}
-	if (callbacks_assigned) {
+	if (callbacks_assigned && state != promise_state::completed) {
 		/* Bound but not completed */
-		if (state != promise_state::completed) {
-			on_resolve = nullptr;
-			on_reject = nullptr;
-			throw logic_error("Promise destructor called on bound but uncompleted promise");
-		}
-	} else {
-		/* Not completed and not end of chain (should be a "warning" really) */
-		if (state == promise_state::resolved || state == promise_state::rejected) {
-			throw logic_error("Unterminted promise chain (forgot ->finish?)");
-		}
+		throw logic_error("Promise destructor called on bound but uncompleted promise");
 	}
 }
 #endif
@@ -72,7 +59,11 @@ void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_st
 		throw logic_error("Cannot explicitly mark a promise as pending");
 	case promise_state::rejected:
 	case promise_state::resolved:
-		if (state == promise_state::pending || state == next_state) {
+		if (state == promise_state::pending) {
+			lock_self();
+			break;
+		}
+		if (state == next_state) {
 			break;
 		}
 		throw logic_error("Cannot resolve/reject promise: it is already resolved/rejected");
@@ -103,17 +94,15 @@ void PromiseStateBase::update_state(ensure_locked lock)
 	case promise_state::rejected:
 		if (callbacks_assigned) {
 			auto callback = on_reject;
-			lock_self();
-			set_state(lock, promise_state::completed);
 			callback(lock);
+			set_state(lock, promise_state::completed);
 		}
 		break;
 	case promise_state::resolved:
 		if (callbacks_assigned) {
 			auto callback = on_resolve;
-			lock_self();
-			set_state(lock, promise_state::completed);
 			callback(lock);
+			set_state(lock, promise_state::completed);
 		}
 		break;
 	case promise_state::completed:
@@ -139,7 +128,7 @@ void PromiseStateBase::set_error(ensure_locked lock, exception_ptr error)
 	this->error = error;
 }
 
-exception_ptr& PromiseStateBase::get_error(ensure_locked)
+exception_ptr PromiseStateBase::get_error(ensure_locked) const
 {
 	return error;
 }

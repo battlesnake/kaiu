@@ -32,7 +32,8 @@ void PromiseState<Result>::resolve(Result&& result)
 }
 
 template <typename Result>
-void PromiseState<Result>::forward_to(Promise<Result> next)
+template <typename NextPromise>
+void PromiseState<Result>::forward_to(NextPromise next)
 {
 	lock_guard<mutex> lock(state_lock);
 	auto resolve = [next, this] (ensure_locked lock) {
