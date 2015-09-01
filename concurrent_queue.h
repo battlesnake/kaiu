@@ -14,15 +14,15 @@ public:
 	ConcurrentQueue(const ConcurrentQueue&) = delete;
 	ConcurrentQueue& operator=(const ConcurrentQueue&) = delete;
 	ConcurrentQueue() = delete;
-	ConcurrentQueue(mutex& queue_mutex, bool nowaiting = false);
+	explicit ConcurrentQueue(bool nowaiting = false);
 	/* Append event to end of queue */
 	void push(const T& item);
-	void push(const T&& item);
+	void push(T&& item);
 	template <typename... Args>
 	void emplace(Args&&... args);
 	/*
 	 * Remove event from front of queue
-	 * 
+	 *
 	 * If there are no elements in the queue then either:
 	 *   wait until there are if we're not in no-waiting mode
 	 *   return false without waiting if we are in no-waiting mode
@@ -36,16 +36,18 @@ public:
 	 */
 	template <typename WaitGuard, typename... GuardParam>
 	bool pop(T& out, GuardParam&&... guard_param);
+	template <typename = void>
+	bool pop(T& out) { return pop<int>(out, 0); }
 	/* Set/unset no-waiting mode */
 	void set_nowaiting(bool value = true);
 	bool is_nowaiting() const;
 	/* Test if queue is empty */
-	bool isEmpty();
-	bool isEmpty(const unique_lock<mutex>& lock) const;
+	bool isEmpty(bool is_locked = false) const;
+	/* Mutex is exposed for ParallelEventLoop::join */
+	mutable mutex queue_mutex;
 private:
 	condition_variable unblock;
 	queue<T> events;
-	mutex& queue_mutex;
 	atomic<bool> nowaiting{false};
 	void notify();
 };

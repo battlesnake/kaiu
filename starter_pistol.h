@@ -19,8 +19,10 @@ using namespace std;
  */
 class StarterPistol {
 public:
-	StarterPistol(const int racers);
+	explicit StarterPistol(const int racers);
+	StarterPistol() : StarterPistol(0) { }
 	void ready();
+	void reset(const int racers);
 private:
 	int racers{0};
 	condition_variable trigger;

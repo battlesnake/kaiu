@@ -7,35 +7,32 @@ namespace kaiu {
 using namespace std;
 
 template <typename T>
-ConcurrentQueue<T>::ConcurrentQueue(mutex& queue_mutex, bool nowaiting) 
-	: queue_mutex(queue_mutex), nowaiting(nowaiting)
+ConcurrentQueue<T>::ConcurrentQueue(bool nowaiting)
+	: nowaiting(nowaiting)
 {
 }
 
 template <typename T>
 void ConcurrentQueue<T>::push(const T& item)
 {
-	unique_lock<mutex> lock(queue_mutex);
+	lock_guard<mutex> lock(queue_mutex);
 	events.push(item);
-	lock.unlock();
 	notify();
 }
 
 template <typename T>
-void ConcurrentQueue<T>::push(const T&& item)
+void ConcurrentQueue<T>::push(T&& item)
 {
-	unique_lock<mutex> lock(queue_mutex);
+	lock_guard<mutex> lock(queue_mutex);
 	events.push(move(item));
-	lock.unlock();
 	notify();
 }
 
 template <typename T>
 template <typename... Args> void ConcurrentQueue<T>::emplace(Args&&... args)
 {
-	unique_lock<mutex> lock(queue_mutex);
+	lock_guard<mutex> lock(queue_mutex);
 	events.emplace(forward<Args...>(args...));
-	lock.unlock();
 	notify();
 }
 
@@ -55,6 +52,8 @@ bool ConcurrentQueue<T>::pop(T& out, GuardParam&&... guard_param)
 	auto end_wait_condition = [this] {
 		return is_nowaiting() || !events.empty();
 	};
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
 	if (!end_wait_condition()) {
 		/* Externally supplied wait callback guard */
 		WaitGuard guard(forward<GuardParam>(guard_param)...);
@@ -64,6 +63,7 @@ bool ConcurrentQueue<T>::pop(T& out, GuardParam&&... guard_param)
 		 */
 		unblock.wait(lock, end_wait_condition);
 	}
+#pragma GCC diagnostic pop
 	/* Queue is locked at this point whether or not we waited */
 	if (events.empty()) {
 		return false;
@@ -93,22 +93,14 @@ bool ConcurrentQueue<T>::is_nowaiting() const
 }
 
 template <typename T>
-bool ConcurrentQueue<T>::isEmpty()
+bool ConcurrentQueue<T>::isEmpty(bool is_locked) const
 {
-	lock_guard<mutex> lock(queue_mutex);
-	return events.empty();
-}
-
-template <typename T>
-bool ConcurrentQueue<T>::isEmpty(const unique_lock<mutex>& lock) const
-{
-	if (!lock.owns_lock()) {
-		throw logic_error("Mutex must be owned before calling isEmpty");
+	if (is_locked) {
+		return events.empty();
+	} else {
+		lock_guard<mutex> lock(queue_mutex);
+		return events.empty();
 	}
-	if (lock.mutex() != &queue_mutex) {
-		throw logic_error("Wrong mutex in lock");
-	}
-	return events.empty();
 }
 
 }

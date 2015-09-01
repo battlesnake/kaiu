@@ -12,7 +12,10 @@ Assertions assert({
 	{ nullptr, "Single-threaded event loop" },
 	{ "SORDER", "All events fire and they fire in order" },
 	{ nullptr, "Multi-threaded event loop" },
-	{ "MALL", "All events fired" }
+	{ "MALL", "All events fired" },
+	{ nullptr, "Correct handling of special/invalid pool values" },
+	{ "PSAME_ERR", "Push to EventLoopPool::same throws in non-pool thread" },
+	{ "PSAME", "Push to EventLoopPool::same behaves correctly in pool thread" }
 });
 
 void test_single()
@@ -104,10 +107,32 @@ void test_multi()
 	assert.expect(order, "AB2B1C" + string(d_rep, 'D') + "E", "MALL");
 }
 
+void test_pools()
+{
+	ParallelEventLoop loop({
+		{ EventLoopPool::reactor, 1 }
+	});
+	auto f2 = [] (EventLoop& loop) {
+		assert.expect(ParallelEventLoop::current_pool(), EventLoopPool::reactor, "PSAME");
+	};
+	auto f1 = [f2] (EventLoop& loop) {
+		loop.push(EventLoopPool::same, f2);
+		this_thread::sleep_for(1ms);
+	};
+	try {
+		loop.push(EventLoopPool::same, f1);
+		assert.fail("PSAME_ERR");
+	} catch (...) {
+		assert.pass("PSAME_ERR");
+	}
+	loop.push(EventLoopPool::reactor, f1);
+}
+
 int main(int argc, char *argv[])
 try {
 	test_single();
 	test_multi();
+	test_pools();
 	return assert.print(argc, argv);
 } catch (...) {
 	assert.print_error();

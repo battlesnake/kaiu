@@ -1,3 +1,4 @@
+#include <stdexcept>
 #include "starter_pistol.h"
 
 namespace kaiu {
@@ -15,6 +16,14 @@ void StarterPistol::ready()
 	} else {
 		trigger.wait(lock, [this] { return racers == 0; });
 	}
+}
+
+void StarterPistol::reset(const int racers_)
+{
+	if (racers) {
+		throw logic_error("Attempted to reset a pending starter pistol");
+	}
+	racers = racers_;
 }
 
 }
