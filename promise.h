@@ -7,6 +7,7 @@
 #include <tuple>
 #include <vector>
 #include <type_traits>
+#include "self_managing.h"
 
 namespace kaiu {
 
@@ -248,7 +249,7 @@ static_assert(!result_of_not_promise_is<Promise<int>, int>::value, "Promise trai
  * Untyped promise state
  */
 
-class PromiseStateBase : public enable_shared_from_this<PromiseStateBase> {
+class PromiseStateBase : public self_managing {
 public:
 	/* Reject */
 	void reject(exception_ptr error);
@@ -265,16 +266,6 @@ public:
 	/* Make terminator */
 	void finish();
 protected:
-	/*
-	 * All protected functions require a lock_guard to have been acquired on the
-	 * state_lock, this is enforced via a reference parameter that the compiler
-	 * should be able to happily optimize out.
-	 *
-	 * TODO: Remove the lock-passing sanity-check before release, unless we can
-	 * be certain that the compiler/linker will do it for us.
-	 */
-	using ensure_locked = lock_guard<mutex> const &;
-	mutable mutex state_lock;
 	/*
 	 * Promise states:
 	 *
@@ -340,10 +331,6 @@ private:
 	bool callbacks_assigned{false};
 	function<void(ensure_locked)> on_resolve{nullptr};
 	function<void(ensure_locked)> on_reject{nullptr};
-	/* Used to prevents self-destruction */
-	shared_ptr<PromiseStateBase> self_reference{nullptr};
-	void lock_self();
-	void unlock_self();
 };
 
 /***
@@ -380,8 +367,6 @@ private:
  *     });
  *
  */
-
-/* TODO: Allow Promise to take multiple result types, and store as tuple */
 
 template <typename Result>
 class PromiseState : public PromiseStateBase {

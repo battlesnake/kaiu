@@ -26,7 +26,7 @@ Result& PromiseState<Result>::get_result(ensure_locked lock)
 template <typename Result>
 void PromiseState<Result>::resolve(Result&& result)
 {
-	lock_guard<mutex> lock(state_lock);
+	auto lock = get_lock();
 	set_result(lock, forward<Result>(result));
 	set_state(lock, promise_state::resolved);
 }
@@ -35,7 +35,7 @@ template <typename Result>
 template <typename NextPromise>
 void PromiseState<Result>::forward_to(NextPromise next)
 {
-	lock_guard<mutex> lock(state_lock);
+	auto lock = get_lock();
 	auto resolve = [next, this] (ensure_locked lock) {
 		next->resolve(move(get_result(lock)));
 	};
@@ -52,7 +52,7 @@ Promise<NextResult> PromiseState<Result>::then(
 	Except except_func,
 	Finally finally_func)
 {
-	lock_guard<mutex> lock(state_lock);
+	auto lock = get_lock();
 	NextPromise promise;
 	NextFunc<NextPromise> next(next_func);
 	ExceptFunc<NextPromise> handler(except_func);

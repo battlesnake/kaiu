@@ -10,7 +10,6 @@ using namespace std;
 #if defined(DEBUG)
 PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
-	lock_guard<mutex> lock(state_lock);
 	/*
 	 * Don't throw if stack is being unwound, it'll prevent catch blocks from
 	 * being run and will generally ruin your debugging experience.
@@ -27,7 +26,7 @@ PromiseStateBase::~PromiseStateBase() noexcept(false)
 
 void PromiseStateBase::reject(exception_ptr error)
 {
-	lock_guard<mutex> lock(state_lock);
+	auto lock = get_lock();
 	set_error(lock, error);
 	set_state(lock, promise_state::rejected);
 }
@@ -60,7 +59,7 @@ void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_st
 	case promise_state::rejected:
 	case promise_state::resolved:
 		if (state == promise_state::pending) {
-			lock_self();
+			make_immortal(lock);
 			break;
 		}
 		if (state == next_state) {
@@ -108,19 +107,9 @@ void PromiseStateBase::update_state(ensure_locked lock)
 	case promise_state::completed:
 		on_resolve = nullptr;
 		on_reject = nullptr;
-		unlock_self();
+		make_mortal(lock);
 		break;
 	}
-}
-
-void PromiseStateBase::lock_self()
-{
-	self_reference = shared_from_this();
-}
-
-void PromiseStateBase::unlock_self()
-{
-	self_reference = nullptr;
 }
 
 void PromiseStateBase::set_error(ensure_locked lock, exception_ptr error)
@@ -146,7 +135,7 @@ void PromiseStateBase::set_terminator(ensure_locked lock)
 
 void PromiseStateBase::finish()
 {
-	lock_guard<mutex> lock(state_lock);
+	auto lock = get_lock();
 	set_terminator(lock);
 }
 
