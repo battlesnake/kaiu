@@ -96,17 +96,19 @@ $(out)/%: $(obj)/%.o | $(out)
 
 # Test dependencies
 
-$(test)/promise:
+$(test)/promise: $(obj)/promise.o
 
-$(test)/event_loop: $(obj)/starter_pistol.o
+$(test)/event_loop: $(obj)/event_loop.o $(obj)/starter_pistol.o
 
 $(test)/task: $(obj)/promise.o $(obj)/decimal.o $(obj)/event_loop.o $(obj)/starter_pistol.o
 
-$(test)/functional: $(obj)/promise.o $(obj)/task.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+$(test)/functional: $(obj)/promise.o $(obj)/event_loop.o $(obj)/starter_pistol.o
+
+$(test)/decimal: $(obj)/decimal.o
 
 # Test binaries
 
-$(test)/%: $(obj)/test_%.o $(obj)/%.o $(obj)/assertion.o | $(test)
+$(test)/%: $(obj)/test_%.o $(obj)/assertion.o | $(test)
 	@$(define_cc_proxy)
 	$(cc) $(ld_opts) $^ -o $@
 
