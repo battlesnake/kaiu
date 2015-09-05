@@ -3,12 +3,50 @@
 #include <sstream>
 #include <algorithm>
 #include <chrono>
+#include <signal.h>
+#include <stdio.h>
 #include "assertion.h"
 
 namespace kaiu {
 
 using namespace std;
 using namespace std::chrono;
+
+Assertions *assertions;
+struct sigaction new_sigsegv;
+
+static void sigsegv_handler(int signo, siginfo_t *info, void *context)
+{
+	if (assertions) {
+		printf("Segfault detected, attempting to print current state of tests\n");
+		fflush(stdout);
+		assertions->print(true);
+	} else {
+		printf("Segfault detected\n");
+	}
+	exit(255);
+}
+
+static void sigsegv_attach(Assertions& ass)
+{
+	if (!assertions) {
+		sigemptyset(&new_sigsegv.sa_mask);
+		new_sigsegv.sa_flags = SA_SIGINFO;
+		new_sigsegv.sa_sigaction = &sigsegv_handler;
+		if (sigaction(SIGSEGV, &new_sigsegv, nullptr) == 0) {
+			assertions = &ass;
+		} else {
+			printf("Failed to install SIGSEGV handler\n");
+		}
+	}
+}
+
+static void sigsegv_detach(Assertions& ass)
+{
+	if (assertions == &ass) {
+		assertions = nullptr;
+	}
+}
 
 Assertions::Assertions(const vector<pair<const char *, const char *>>& strings)
 	: printed(false), strings(strings)
@@ -22,10 +60,12 @@ Assertions::Assertions(const vector<pair<const char *, const char *>>& strings)
 			throw logic_error("Duplicate test: '" + string(code) + "'");
 		}
 	}
+	sigsegv_attach(*this);
 }
 
 Assertions::~Assertions()
 {
+	sigsegv_detach(*this);
 	lock_guard<mutex> lock(mx);
 	if (!printed) {
 		_print(lock, false);
