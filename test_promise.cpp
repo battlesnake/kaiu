@@ -39,6 +39,11 @@ Assertions assert({
 	{ nullptr, "Compiler handles optional arguments correctly (statically checked)" },
 	{ "OATH", "Then: omit 'handler'" },
 	{ "OATF", "Then: omit 'finalizer'" },
+	{ nullptr, "Promise monad" },
+	{ "MONAD1", "Chain #1" },
+	{ "MONAD2", "Chain #2" },
+	{ "MONADE1", "Exception handling #1" },
+	{ "MONADE2", "Exception handling #2" },
 });
 
 void do_async_nonblock(function<void()> op)
@@ -185,7 +190,7 @@ void static_combine_test()
 		promise::resolved(float(3.1f)),
 		promise::resolved(string("hello"))
 	)->then(
-		[] (const auto& result) {
+		[] (const auto result) {
 			assert.expect(
 				get<0>(result) == 2 &&
 				get<1>(result) == 3.1f &&
@@ -193,7 +198,7 @@ void static_combine_test()
 				true,
 				"PCR");
 		},
-		[] (const auto& error) {
+		[] (const auto error) {
 			assert.fail("PCR");
 		});
 	promise::combine(
@@ -201,10 +206,10 @@ void static_combine_test()
 		promise::rejected<float>("Kartuliõis!"),
 		promise::resolved(string("hello"))
 	)->then(
-		[] (const auto& result) {
+		[] (const auto result) {
 			assert.fail("PCJ");
 		},
-		[] (const auto& error) {
+		[] (const auto error) {
 			try {
 				rethrow_exception(error);
 			} catch (const runtime_error& e) {
@@ -225,14 +230,14 @@ void dynamic_combine_test()
 	}
 	promise::combine(seq)
 		->then(
-			[] (const auto& result) {
+			[] (const auto result) {
 				bool pass = true;
 				for (size_t i = 0; i < count; i++) {
 					pass = pass && result[i] == i;
 				}
 				assert.expect(pass, true, "VCR");
 			},
-			[] (const auto& error) {
+			[] (const auto error) {
 				assert.fail("VCR");
 			});
 	seq.resize(0);
@@ -242,10 +247,10 @@ void dynamic_combine_test()
 	}
 	promise::combine(seq)
 		->then(
-			[] (const auto& result) {
+			[] (const auto result) {
 				assert.fail("VCJ");
 			},
-			[] (const auto& error) {
+			[] (const auto error) {
 				assert.pass("VCJ");
 			});
 }
@@ -264,7 +269,7 @@ void efficiency_test()
 			})
 			->finally([] () {
 			})
-			->then([] (auto& ptr) {
+			->then([] (auto ptr) {
 				assert.expect(*ptr, 42, "NC");
 			});
 	}
@@ -272,7 +277,7 @@ void efficiency_test()
 		promise::combine(
 			promise::resolved(make_unique<int>(1)),
 			promise::resolved(make_unique<int>(2)))
-			->then([] (auto& result) {
+			->then([] (auto result) {
 				assert.expect(
 					*get<0>(result) == 1 && *get<1>(result) == 2, true,
 					"NCP");
@@ -283,7 +288,7 @@ void efficiency_test()
 		v.emplace_back(promise::resolved(make_unique<int>(1)));
 		v.emplace_back(promise::resolved(make_unique<int>(2)));
 		promise::combine(v)
-			->then([] (auto& result) {
+			->then([] (auto result) {
 				assert.expect(
 					result.size() == 2 &&
 					*result[0] == 1 && *result[1] == 2, true,
@@ -327,6 +332,133 @@ void static_checks()
 			});
 }
 
+/* Easier than planting breakpoints in gdb */
+void do_segfault()
+{
+	*(int *)0 = 42;
+}
+
+void monadic_test()
+{
+	using promise::Factory;
+	using namespace promise::monads;
+	struct monad_test {
+		monad_test(const string name) : complete(false), name(name) { }
+		monad_test() : monad_test(string{}) { }
+		void fail(const string msg) const { assert.fail(name, msg); }
+		void pass() const { assert.try_pass(name); }
+		void end()
+		{
+			if (name.empty()) {
+				return;
+			}
+			if (complete) {
+				pass();
+			} else {
+				fail("Test not completed");
+			}
+			name = {};
+		}
+		void completed() { complete = true; }
+	private:
+		bool complete;
+		string name;
+	};
+	static monad_test this_test;
+	struct begin_test {
+		begin_test(const string name) { this_test = monad_test(name); }
+		void end() { this_test.end(); }
+		~begin_test() { end(); }
+	};
+	/* Basic operations */
+	Factory<int, int> sqr {[] (int x) {
+		return promise::resolved(x * x);
+	}};
+	auto add = [] (int addend) {
+		return Factory<int, int> {[=] (int x) {
+			return promise::resolved(x + addend);
+		}};
+	};
+	auto div{[] (int divisor) {
+		return Factory<int, int> {[=] (int x) {
+			if (divisor == 0) {
+				throw runtime_error("Division by zero");
+			}
+			return promise::resolved(x / divisor);
+		}};
+	}};
+	/* Assert current value in chain */
+	auto test = [] (int expect) -> Factory<int, int> {
+		return [expect] (int x) {
+			if (x != expect) {
+				this_test.fail("Test result was incorrect");
+			}
+			this_test.completed();
+			return promise::resolved(x);
+		};
+	};
+	/* Should never be called */
+	Factory<int, int> test_fail {[] (int) {
+		this_test.fail("Catch block not triggered by exception");
+		return promise::resolved(0);
+	}};
+	/* Unexpected exception */
+	Factory<int, exception_ptr> catcher {[] (exception_ptr) {
+		this_test.fail("Unexpected exception thrown");
+		throw logic_error("Promise flow control broken");
+		return promise::resolved(0);
+	}};
+	/* Consume error, return new value */
+	auto must_catch = [] (int value) -> Factory<int, exception_ptr> {
+		return [value] (exception_ptr) {
+			return promise::resolved(value);
+		};
+	};
+	Factory<int, int> then_segfault {[] (int value) {
+		do_segfault();
+		return promise::resolved(0);
+	}};
+	Factory<int, exception_ptr> except_segfault {[] (exception_ptr) {
+		do_segfault();
+		return promise::resolved(0);
+	}};
+	function<void()> finally_segfault {[] () {
+		do_segfault();
+	}};
+	auto segfault = then_segfault/except_segfault/finally_segfault;
+	{
+		auto t = begin_test("MONAD1");
+		auto chain = sqr >>= test(169)/catcher >>= add(31) >>= div(20) >>= test(10)/catcher;
+		chain(13);
+		t.end();
+	}
+	{
+		auto t = begin_test("MONAD2");
+		auto chain = sqr >>= test(3600)/catcher >>= add(496) >>= div(256) >>= test(16)/catcher;
+		chain(60);
+		t.end();
+	}
+	{
+		auto t = begin_test("MONADE1");
+		/*
+		 * segfault triggers here, but not when shifted right one place - so the
+		 * rejected promise is not being propagated along the monad chain.
+		 */
+		auto chain = add(100) >>= segfault >>= div(0)/catcher >>= test_fail >>=
+			test_fail/must_catch(69) >>= div(3)/catcher >>= test(23)/catcher;
+		chain(1);
+		t.end();
+	}
+	{
+		auto t = begin_test("MONADE2");
+		auto chain = add(100) >>= div(0)/catcher >>= test_fail >>=
+			nullptr/must_catch(69) >>= div(3)/catcher/nullptr >>=
+			nullptr/catcher >>= test(23)/catcher;
+		chain(1);
+		t.end();
+	}
+}
+
 int main(int argc, char *argv[])
 try {
 	flow_test();
@@ -334,6 +466,7 @@ try {
 	dynamic_combine_test();
 	efficiency_test();
 	static_checks();
+	monadic_test();
 	return assert.print(argc, argv);
 } catch (...) {
 	assert.print_error();

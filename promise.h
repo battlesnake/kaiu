@@ -127,13 +127,12 @@ template <typename Result> class Promise;
 
 template <typename T>
 struct is_promise {
-private:
-	template <typename U>
-	static integral_constant<bool, U::is_promise> check(int);
-	template <typename>
-	static std::false_type check(...);
-public:
-	static constexpr auto value = decltype(check<T>(0))::value;
+	static constexpr auto value = false;
+};
+
+template <typename T>
+struct is_promise<Promise<T>> {
+	static constexpr auto value = true;
 };
 
 namespace detail {
@@ -208,20 +207,15 @@ using is_promise_like = is_base_of<PromiseLike, T>;
 
 template <typename Result>
 class Promise : public PromiseLike {
-	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
-	static_assert(!is_promise<Result>::value, "Promise<Promise<T>> is invalid, use Promise<T> instead");
 public:
 	using DResult = typename remove_cvr<Result>::type;
-	using RResult = DResult&;
-	using XResult = DResult&&;
-	static constexpr bool is_promise = true;
 	using result_type = DResult;
 	/* Promise */
 	Promise();
 	/* Copy/move/cast constructors */
 	Promise(const Promise<DResult>&);
-	Promise(const Promise<RResult>&);
-	Promise(const Promise<XResult>&);
+	Promise(const Promise<DResult&>&);
+	Promise(const Promise<DResult&&>&);
 	Promise(Promise<Result>&&) = default;
 	/* Assignment */
 	Promise<Result>& operator =(Promise<Result>&&) = default;
@@ -230,8 +224,11 @@ public:
 	PromiseState<DResult> *operator ->() const;
 private:
 	friend class Promise<DResult>;
-	friend class Promise<RResult>;
-	friend class Promise<XResult>;
+	friend class Promise<DResult&>;
+	friend class Promise<DResult&&>;
+	static_assert(!is_void<DResult>::value, "Void promises are no longer supported");
+	static_assert(!is_same<DResult, exception_ptr>::value, "Promise result type cannot be exception_ptr");
+	static_assert(!is_promise<DResult>::value, "Promise<Promise<T>> is invalid, use Promise<T>/forward_to instead");
 	Promise(shared_ptr<PromiseState<DResult>> const promise);
 	shared_ptr<PromiseState<DResult>> promise;
 };
@@ -259,6 +256,8 @@ public:
 	/* No copy/move constructor */
 	PromiseStateBase(PromiseStateBase const&) = delete;
 	PromiseStateBase(PromiseStateBase&&) = delete;
+	PromiseStateBase operator =(PromiseStateBase const&) = delete;
+	PromiseStateBase operator =(PromiseStateBase&&) = delete;
 #if defined(DEBUG)
 	/* Destructor */
 	~PromiseStateBase() noexcept(false);
@@ -341,31 +340,6 @@ private:
  *
  * The PromiseState<T> is aggregated onto the Promise<T> via the member (->)
  * operator.
- *
- * Promise<string> get_username(int user_id)
- * {
- *     Promise<string> promise;
- *
- *     run_query(
- *         "SELECT `username` FROM `user` WHERE `user`=" + to_string(user_id),
- *         "username",
- *         [promise] (string& result) {
- *             promise->resolve(result);
- *         },
- *         [promise] (string& error) {
- *             promise->reject(result);
- *         });
- *
- *     return promise;
- * }
- *
- * get_user_id(session)
- *     ->then(get_username)
- *     ->then(send_string(connection))
- *     ->except([] (auto error) {
- *         ( handle error )
- *     });
- *
  */
 
 template <typename Result>
@@ -376,7 +350,7 @@ public:
 		"Type parameter for promise internal state must not be cv-qualified or a reference");
 	/* "then" and "except" returning new value or next promise */
 	template <typename NextResult = Result>
-		using NextFunc = function<NextResult(Result&)>;
+		using NextFunc = function<NextResult(Result)>;
 	template <typename NextResult = Result>
 		using ExceptFunc = function<NextResult(exception_ptr)>;
 	/* "then" and "except" ending promise chain */
@@ -391,7 +365,7 @@ public:
 	PromiseState(PromiseState<Result>&&) = delete;
 	PromiseState(const PromiseState<Result>&) = delete;
 	/* Resolve */
-	void resolve(Result&& result);
+	void resolve(Result result);
 	/* Reject */
 	using PromiseStateBase::reject;
 	/* Forwards the result of this promise to another promise */
@@ -399,7 +373,7 @@ public:
 	void forward_to(NextPromise next);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
-	using ThenResult = typename result_of<Next(Result&)>::type;
+	using ThenResult = typename result_of<Next(Result&&)>::type;
 	template <
 		typename Next,
 		typename NextResult = ThenResult<Next>,
@@ -410,9 +384,9 @@ public:
 			!is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> then(
-			Next /* NextFunc<NextResult> */ next_func,
-			Except /* ExceptFunc<NextResult> */ except_func = nullptr,
-			Finally /* FinallyFunc */ finally_func = nullptr);
+			Next next_func,
+			Except except_func = nullptr,
+			Finally finally_func = nullptr);
 	/* Then (callbacks return promise) */
 	template <
 		typename Next,
@@ -424,9 +398,9 @@ public:
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> then(
-			Next /* NextFunc<Promise<NextResult>> */ next_func,
-			Except /* ExceptFunc<Promise<NextResult>> */ except_func = nullptr,
-			Finally /* FinallyFunc */ finally_func = nullptr);
+			Next next_func,
+			Except except_func = nullptr,
+			Finally finally_func = nullptr);
 	/* Then (end promise chain) */
 	template <
 		typename Next,
@@ -437,9 +411,9 @@ public:
 			is_void<NextResult>::value
 		>::type>
 	void then(
-		Next /* NextVoidFunc */ next_func,
-		Except /* ExceptVoidFunc */ except_func = nullptr,
-		Finally /* FinallyFunc */ finally_func = nullptr);
+		Next next_func,
+		Except except_func = nullptr,
+		Finally finally_func = nullptr);
 	/* Except */
 	template <
 		typename Except,
@@ -449,7 +423,7 @@ public:
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> except(
-		Except /* ExceptFunc<Promise<NextResult>> */ except_func)
+		Except except_func)
 			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); }
 	template <
 		typename Except,
@@ -459,7 +433,7 @@ public:
 			!is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> except(
-		Except /* ExceptFunc<NextResult> */ except_func)
+		Except except_func)
 			{ return then<NextFunc<NextResult>>(nullptr, except_func); }
 	/* Except (end promise chain) */
 	template <
@@ -469,33 +443,33 @@ public:
 			is_void<NextResult>::value
 		>::type>
 	void except(
-		Except /* ExceptVoidFunc */ except_func)
+		Except except_func)
 			{ then<void>(nullptr, except_func); }
 	/* Finally */
 	template <typename Finally>
 	Promise<Result> finally(
-		Finally /* FinallyFunc */ finally_func)
+		Finally finally_func)
 			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); }
 	/* Make terminator with finalizer */
 	template <typename Finally>
-	void finish(Finally /* FinallyFunc */ finally_func)
+	void finish(Finally finally_func)
 		{ finally(finally_func)->finish(); }
 	using PromiseStateBase::finish;
 protected:
 	/* Get/set promise result */
 	void set_result(ensure_locked, Result&& value);
-	Result& get_result(ensure_locked);
+	Result get_result(ensure_locked);
 private:
 	Result result;
 	/* Helper functions to pass current value onwards if no 'next' callback */
 	template <typename NextResult,
 		typename = typename enable_if<is_same<Result, NextResult>::value>::type>
-	static NextResult&& forward_result(Result& result);
+	static NextResult forward_result(Result result);
 	template <typename NextResult, int dummy = 0,
 		typename = typename enable_if<!is_same<Result, NextResult>::value>::type>
-	static NextResult&& forward_result(Result& result);
+	static NextResult forward_result(Result result);
 	template <typename NextResult>
-	static Promise<NextResult> default_next(Result& result);
+	static Promise<NextResult> default_next(Result result);
 	template <typename NextResult>
 	static Promise<NextResult> default_except(exception_ptr error);
 	static void default_finally();
@@ -507,7 +481,7 @@ namespace promise {
 /* Construct a resolved promise */
 
 template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> resolved(Result&& result);
+Promise<DResult> resolved(Result result);
 
 /* Construct a rejected promise */
 
@@ -588,3 +562,5 @@ Promise<vector<Result>> combine(List promises);
 #ifndef promise_tcc
 #include "promise.tcc"
 #endif
+
+#include "promise_monad.h"
