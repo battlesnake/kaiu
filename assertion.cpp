@@ -171,9 +171,9 @@ int Assertions::_print(ensure_locked, bool always)
 	}
 	out << "    Elapsed: " << msecs.count() << "ms" << endl;
 	if (always || count[failed] + count[skipped] + count[unknown] > 0) {
-		cout << out.rdbuf() << endl << endl;
+		cout << out.rdbuf() << endl;
 	} else {
-		cout << "\x1b[32m    [PASS]\x1b[37;4m  (all)\x1b[24m \x1b[35m" << msecs.count() << "ms" << "\x1b[37m" << endl << endl;
+		cout << "\x1b[32m    [PASS]\x1b[37;4m  (all)\x1b[24m \x1b[35m" << msecs.count() << "ms" << "\x1b[37m" << endl;
 	}
 	return count[failed] + count[unknown];
 }
