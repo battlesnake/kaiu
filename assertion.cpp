@@ -18,9 +18,10 @@ struct sigaction new_sigsegv;
 static void sigsegv_handler(int signo, siginfo_t *info, void *context)
 {
 	if (assertions) {
-		printf("Segfault detected, attempting to print current state of tests\n");
+		printf("\x1b[5;93;41mSegfault detected, attempting to print current state of tests\x1b[0m\n");
 		fflush(stdout);
 		assertions->print(true);
+		printf("\x1b[5;93;41mSegfault detected\x1b[0m\n");
 	} else {
 		printf("Segfault detected\n");
 	}
