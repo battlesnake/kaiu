@@ -176,18 +176,68 @@ public:
 	static constexpr auto value = decltype(check<T>(0))::value;
 };
 
+namespace promise {
+
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> resolved(Result result);
+
+template <typename Result, typename DResult = typename remove_cvr<Result>::type>
+Promise<DResult> rejected(exception_ptr error);
+
+/*
+ * Can be used to pack callbacks for a promise, for use in monad syntax
+ */
+template <typename Range, typename Domain>
+class callback_pack {
+public:
+	using range_type = Range;
+	using domain_type = Domain;
+	static constexpr bool is_terminal = is_void<Range>::value;
+	using Next = typename conditional<
+		is_terminal,
+		function<void(Domain)>,
+		function<Promise<Range>(Domain)>>::type;
+	using Handler = typename conditional<
+		is_terminal,
+		function<void(exception_ptr)>,
+		function<Promise<Range>(exception_ptr)>>::type;
+	using Finalizer = function<void()>;
+	/* Pack callbacks */
+	explicit callback_pack(const Next next, const Handler handler = nullptr, const Finalizer finalizer = nullptr);
+	/* Bind operator, for chaining callback packs */
+	template <typename NextRange>
+	auto bind(callback_pack<NextRange, Range> after) const;
+	/* Bind callbacks to promise */
+	Promise<Range> operator () (const Promise<Domain> d) const
+		{ return call(d); }
+	Promise<Range> operator () (Domain d) const
+		{ return call(promise::resolved<Domain>(move(d))); }
+	const Next next;
+	const Handler handler;
+	const Finalizer finalizer;
+private:
+	Promise<Range> call (const Promise<Domain> d) const
+		{ return d->then(*this); }
+	Promise<Range> rejected(exception_ptr error) const
+		{ return call(promise::rejected<Domain>(error)); }
+};
+
+}
+
+template <typename T>
+struct is_callback_pack : false_type { };
+template <typename Range, typename Domain>
+struct is_callback_pack<promise::callback_pack<Range, Domain>> : true_type { };
+template <typename T>
+struct is_terminal_callback_pack :
+	integral_constant<bool, is_callback_pack<T>::value &&
+		is_void<typename T::range_type>::value> { };
+
 /*
  * Result type of a promise cannot derive from (or be) PromiseLike.
  *
- * TODO:
- *   Automatically transform Promise<PromiseLike>
- *     to
- *   Promise<typename result_of_promise<PromiseLike>::type>
- *     via forward_to(...) method of PromiseLike
- *     when PromiseLike is specified as return type of a Promise
- *
  * PromiseLike should support ->resolve ->reject ->forward_to:
- *   void resolve(T&&)
+ *   void resolve(T)
  *   void reject(exception_ptr)
  *   void reject(const string&)
  *   void forward_to(PromiseLike)
@@ -371,9 +421,12 @@ public:
 	/* Forwards the result of this promise to another promise */
 	template <typename NextPromise>
 	void forward_to(NextPromise next);
+	/* Bind a callback pack */
+	template <typename Range>
+	Promise<Range> then(const promise::callback_pack<Range, Result>&);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
-	using ThenResult = typename result_of<Next(Result&&)>::type;
+	using ThenResult = typename result_of<Next(Result)>::type;
 	template <
 		typename Next,
 		typename NextResult = ThenResult<Next>,
@@ -444,7 +497,7 @@ public:
 		>::type>
 	void except(
 		Except except_func)
-			{ then<void>(nullptr, except_func); }
+			{ then<NextVoidFunc>(nullptr, except_func); }
 	/* Finally */
 	template <typename Finally>
 	Promise<Result> finally(

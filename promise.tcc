@@ -9,6 +9,37 @@ namespace kaiu {
 
 using namespace std;
 
+/*** callback_pack ***/
+
+template <typename Range, typename Domain>
+template <typename NextRange>
+auto promise::callback_pack<Range, Domain>::
+	bind(promise::callback_pack<NextRange, Range> after) const
+{
+	return promise::callback_pack<NextRange, Domain>(
+		[after, next=next] (Domain d) {
+			if (next) {
+				return next(move(d))->then(after);
+			} else {
+				return after(move(d));
+			}
+		},
+		[after, handler=handler] (exception_ptr error) {
+			if (handler) {
+				return handler(error)->then(after);
+			} else {
+				return after.rejected(error);
+			}
+		}
+	);
+}
+
+template <typename Range, typename Domain>
+promise::callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
+	next(next), handler(handler), finalizer(finalizer)
+{
+}
+
 /*** PromiseState ***/
 
 template <typename Result>
@@ -43,6 +74,14 @@ void PromiseState<Result>::forward_to(NextPromise next)
 		next->reject(get_error(lock));
 	};
 	set_callbacks(lock, resolve, reject);
+}
+
+template <typename Result>
+template <typename Range>
+Promise<Range> PromiseState<Result>::then(
+	const promise::callback_pack<Range, Result>& pack)
+{
+	return then(pack.next, pack.handler, pack.finalizer);
 }
 
 template <typename Result>

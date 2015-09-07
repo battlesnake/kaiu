@@ -5,6 +5,31 @@ namespace kaiu {
 
 using namespace std;
 
+/*** Monads ***/
+
+namespace detail {
+
+	function<void()> combine_finalizers(const function<void()> f1, const function<void()> f2)
+	{
+		if (f1 == nullptr) {
+			return f2;
+		} else if (f2 == nullptr) {
+			return f1;
+		} else {
+			return [f1, f2] () {
+				try {
+					f1();
+				} catch (...) {
+					f2();
+					throw;
+				}
+				f2();
+			};
+		}
+	}
+
+}
+
 /*** PromiseStateBase ***/
 
 #if defined(DEBUG)
