@@ -77,7 +77,7 @@ void PromiseStreamStateBase::update_state(ensure_locked lock)
 		}
 		break;
 	case stream_state::streaming3:
-		if (consumer_is_running) {
+		if (!consumer_is_running) {
 			set_state(lock, stream_state::completed);
 		}
 		break;

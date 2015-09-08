@@ -13,10 +13,10 @@ using namespace std;
 /* Resolve / reject the stream */
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::resolve(Result&& result)
+void PromiseStreamState<Result, Datum>::resolve(Result result)
 {
 	auto lock = get_lock();
-	do_resolve(lock, forward<Result>(result));
+	do_resolve(lock, move(result));
 }
 
 template <typename Result, typename Datum>
@@ -83,9 +83,9 @@ template <typename Result, typename Datum>
 Promise<Result> PromiseStreamState<Result, Datum>::
 	do_stream(stream_consumer consumer)
 {
-	auto data = [consumer] (Datum& datum) {
+	auto data = [consumer] (Datum datum) {
 		try {
-			return consumer(datum);
+			return consumer(move(datum));
 		} catch (...) {
 			return promise::rejected<StreamAction>(current_exception());
 		}
@@ -100,10 +100,10 @@ Promise<pair<State, Result>> PromiseStreamState<Result, Datum>::
 	do_stateful_stream(stateful_stream_consumer<State> consumer, Args&&... args)
 {
 	auto state = make_shared<State>(forward<Args>(args)...);
-	auto consumer_proxy = [this, consumer, state] (Datum& datum) {
-		return consumer(*state, datum);
+	auto consumer_proxy = [this, consumer, state] (Datum datum) {
+		return consumer(*state, move(datum));
 	};
-	auto next_proxy = [this, state] (Result& result) {
+	auto next_proxy = [this, state] (Result result) {
 		return make_pair(move(*state), move(result));
 	};
 	return do_stream(consumer_proxy)
@@ -113,7 +113,7 @@ Promise<pair<State, Result>> PromiseStreamState<Result, Datum>::
 template <typename Result, typename Datum>
 Promise<Result> PromiseStreamState<Result, Datum>::always(StreamAction action)
 {
-	auto consumer = [action] (Datum& datum) {
+	auto consumer = [action] (Datum datum) {
 		return promise::resolved(action);
 	};
 	return do_stream(consumer);
@@ -135,7 +135,7 @@ template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::forward_to(PromiseStream<Result, Datum> next)
 {
 	this
-		->stream<void>([next] (Datum& datum) {
+		->stream<void>([next] (Datum datum) {
 			next->write(move(datum));
 			return next->data_action();
 		})
@@ -197,18 +197,18 @@ void PromiseStreamState<Result, Datum>::process_data()
 	 * and set consumer_running, so the data callback can not be called
 	 * concurrently.
 	 */
-	call_data_callback(datum);
+	call_data_callback(move(datum));
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::call_data_callback(Datum& datum) try {
+void PromiseStreamState<Result, Datum>::call_data_callback(Datum datum) try {
 	/* Assumes consumer_running has been set to true and mutex is not locked */
 	/*
 	 * Asynchronous on_data callbacks will obviously not trigger the catch block
 	 * if they throw.  Synchronous on_data callbacks also will not, as the
 	 * promise's "handler" eats the exception.
 	 */
-	on_data(datum)
+	on_data(move(datum))
 		->then(
 			[this] (const StreamAction action) {
 				{
@@ -231,7 +231,7 @@ void PromiseStreamState<Result, Datum>::call_data_callback(Datum& datum) try {
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::do_resolve(ensure_locked lock, Result&& result)
+void PromiseStreamState<Result, Datum>::do_resolve(ensure_locked lock, Result result)
 {
 	set_stream_result(lock, stream_result::resolved, resolve_completer(move(result)));
 }
@@ -244,13 +244,13 @@ void PromiseStreamState<Result, Datum>::do_reject(ensure_locked lock, exception_
 }
 
 template <typename Result, typename Datum>
-auto PromiseStreamState<Result, Datum>::resolve_completer(Result&& result)
+auto PromiseStreamState<Result, Datum>::resolve_completer(Result result)
 	-> completer_func
 {
 	auto functor = [this, result = move(result)] (ensure_locked lock) mutable {
 		proxy_promise->resolve(move(result));
 	};
-	return detail::shared_functor<decltype(functor)>(move(functor));
+	return detail::make_shared_functor(move(functor));
 }
 
 template <typename Result, typename Datum>
@@ -266,7 +266,7 @@ auto PromiseStreamState<Result, Datum>::reject_completer(exception_ptr error)
 template <typename Result, typename Datum>
 template <typename, typename Consumer>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
-	-> stream_sel<Consumer, result_of_promise_is, Result, Datum&>
+	-> stream_sel<Consumer, result_of_promise_is, Result, Datum>
 {
 	return do_stream(consumer);
 }
@@ -275,10 +275,10 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 template <typename Result, typename Datum>
 template <typename, typename Consumer>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
-	-> stream_sel<Consumer, result_of_not_promise_is, Result, Datum&>
+	-> stream_sel<Consumer, result_of_not_promise_is, Result, Datum>
 {
-	auto data_proxy = [consumer] (Datum& datum) {
-		return promise::resolved<StreamAction>(consumer(datum));
+	auto data_proxy = [consumer] (Datum datum) {
+		return promise::resolved<StreamAction>(consumer(move(datum)));
 	};
 	return do_stream(data_proxy);
 }
@@ -287,7 +287,7 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum&>
+	-> stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum>
 {
 	return do_stateful_stream<State, Args...>(consumer, forward<Args>(args)...);
 }
@@ -296,10 +296,10 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum&>
+	-> stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum>
 {
-	auto data_proxy = [consumer] (State& state, Datum& datum) {
-		return promise::resolved<StreamAction>(consumer(state, datum));
+	auto data_proxy = [consumer] (State& state, Datum datum) {
+		return promise::resolved<StreamAction>(consumer(state, move(datum)));
 	};
 	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
 }
@@ -309,7 +309,7 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args
 /* Access stream */
 
 template <typename Result, typename Datum>
-auto PromiseStream<Result, Datum>::operator ->() const -> PromiseStreamState<DResult, Datum> *
+auto PromiseStream<Result, Datum>::operator ->() const -> PromiseStreamState<Result, Datum> *
 {
 	return stream.get();
 }
@@ -317,7 +317,7 @@ auto PromiseStream<Result, Datum>::operator ->() const -> PromiseStreamState<DRe
 /* Constructor for sharing state with another promise */
 
 template <typename Result, typename Datum>
-PromiseStream<Result, Datum>::PromiseStream(shared_ptr<PromiseStreamState<DResult, Datum>> const state) :
+PromiseStream<Result, Datum>::PromiseStream(shared_ptr<PromiseStreamState<Result, Datum>> const state) :
 	stream(state)
 {
 }
@@ -326,27 +326,7 @@ PromiseStream<Result, Datum>::PromiseStream(shared_ptr<PromiseStreamState<DResul
 
 template <typename Result, typename Datum>
 PromiseStream<Result, Datum>::PromiseStream() :
-	stream(make_shared<PromiseStreamState<DResult, Datum>>())
-{
-}
-
-/* Cast/copy constructors */
-
-template <typename Result, typename Datum>
-PromiseStream<Result, Datum>::PromiseStream(const PromiseStream<DResult, Datum>& p) :
-	PromiseStream(p.stream)
-{
-}
-
-template <typename Result, typename Datum>
-PromiseStream<Result, Datum>::PromiseStream(const PromiseStream<RResult, Datum>& p) :
-	PromiseStream(p.stream)
-{
-}
-
-template <typename Result, typename Datum>
-PromiseStream<Result, Datum>::PromiseStream(const PromiseStream<XResult, Datum>& p) :
-	PromiseStream(p.stream)
+	stream(make_shared<PromiseStreamState<Result, Datum>>())
 {
 }
 

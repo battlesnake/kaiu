@@ -37,14 +37,13 @@ Assertions assert({
 
 void flow_test_continue()
 {
-	PromiseStream<int, vector<char>> basic_test_stream;
 	/* Reads streamed data and builds a linked-list of buffers */
-	auto consumer = [] (list<vector<char>>& state, vector<char>& value) -> StreamAction {
+	auto consumer = [] (list<vector<char>>& state, vector<char> value) -> StreamAction {
 		state.emplace_back(move(value));
 		return StreamAction::Continue;
 	};
 	/* When streaming is complete, this concatenates the buffers */
-	auto concat = [] (pair<list<vector<char>>, int>& res) {
+	auto concat = [] (pair<list<vector<char>>, int> res) {
 		if (res.second != 42) {
 			assert.fail("BASIC", "Resolution value");
 			return string();
@@ -61,16 +60,16 @@ void flow_test_continue()
 				s.append(vec.data(), vec.size());
 				vector<char>().swap(vec);
 			});
-		this_thread::sleep_for(50ms);
 		return s;
 	};
 	/* Test */
-	auto verify = [] (string& s) {
+	auto verify = [] (string s) {
 		if (!s.empty()) {
 			assert.expect(s, "Hello world!", "BASIC");
 		}
 	};
 	/* Promise chain */
+	PromiseStream<int, vector<char>> basic_test_stream;
 	basic_test_stream
 		->stream<list<vector<char>>>(consumer)
 		->then(concat)
@@ -88,7 +87,7 @@ void flow_test_discard()
 {
 	PromiseStream<int, vector<char>> basic_test_stream;
 	/* Reads streamed data and builds a linked-list of buffers */
-	auto consumer = [] (list<vector<char>>& state, vector<char>& value) {
+	auto consumer = [] (list<vector<char>>& state, vector<char> value) {
 		if (value.size() == 0) {
 			return StreamAction::Discard;
 		}
@@ -96,7 +95,7 @@ void flow_test_discard()
 		return StreamAction::Continue;
 	};
 	/* When streaming is complete, this concatenates the buffers */
-	auto concat = [] (pair<list<vector<char>>, int>& res) {
+	auto concat = [] (pair<list<vector<char>>, int> res) {
 		if (res.second != 42) {
 			assert.fail("DISCARD", "Resolution value");
 			return string();
@@ -117,7 +116,7 @@ void flow_test_discard()
 		return s;
 	};
 	/* Test */
-	auto verify = [] (string& s) {
+	auto verify = [] (string s) {
 		if (!s.empty()) {
 			assert.expect(s, "Hello", "DISCARD");
 		}
@@ -140,7 +139,7 @@ void flow_test_stop()
 {
 	PromiseStream<int, vector<char>> basic_test_stream;
 	/* Reads streamed data and builds a linked-list of buffers */
-	auto consumer = [] (list<vector<char>>& state, vector<char>& value) {
+	auto consumer = [] (list<vector<char>>& state, vector<char> value) {
 		if (value.size() == 0) {
 			return StreamAction::Stop;
 		}
@@ -148,7 +147,7 @@ void flow_test_stop()
 		return StreamAction::Continue;
 	};
 	/* When streaming is complete, this concatenates the buffers */
-	auto concat = [] (pair<list<vector<char>>, int>& res) {
+	auto concat = [] (pair<list<vector<char>>, int> res) {
 		if (res.second != 42) {
 			assert.fail("STOP", "Resolution value");
 			return string();
@@ -169,7 +168,7 @@ void flow_test_stop()
 		return s;
 	};
 	/* Test */
-	auto verify = [] (string& s) {
+	auto verify = [] (string s) {
 		if (!s.empty()) {
 			assert.expect(s, "Hello", "STOP");
 		}
@@ -203,14 +202,14 @@ void flow_test_reject()
 	PromiseStream<int, vector<char>> basic_test_stream;
 	bool failed = false;
 	/* Reads streamed data and builds a linked-list of buffers */
-	auto consumer = [failed] (list<vector<char>>& state, vector<char>& value) {
+	auto consumer = [failed] (list<vector<char>>& state, vector<char> value) {
 		if (failed) {
 			assert.fail("REJECT", "Data received after rejection");
 		}
 		state.emplace_back(move(value));
 		return StreamAction::Continue;
 	};
-	auto next = [] (pair<list<vector<char>>, int>& res) {
+	auto next = [] (pair<list<vector<char>>, int> res) {
 		assert.fail("REJECT", "Promise stream resolved");
 	};
 	auto handler = [] (exception_ptr error) {
@@ -244,11 +243,11 @@ void efficiency_test()
 		return make_unique<int>(x);
 	};
 	PromiseStream<Stone, Stone> test_stream;
-	auto consumer = [] (Stone& state, Stone& datum) {
+	auto consumer = [] (Stone& state, Stone datum) {
 		*state += *datum;
 		return StreamAction::Continue;
 	};
-	auto next = [] (pair<Stone, Stone>& res) {
+	auto next = [] (pair<Stone, Stone> res) {
 		Stone& state = res.first;
 		Stone& result = res.second;
 		assert.expect(*state, *result, "NC");

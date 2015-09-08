@@ -50,7 +50,7 @@ public:
 };
 
 template <typename F>
-auto make_shared_functor(F&& functor)
+shared_functor<typename decay<F>::type> make_shared_functor(F&& functor)
 {
 	return shared_functor<typename decay<F>::type>(move(functor));
 }

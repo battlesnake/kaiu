@@ -19,7 +19,7 @@ AsyncPromiseStreamState<Result, Datum>::AsyncPromiseStreamState(
 }
 
 template <typename Result, typename Datum>
-void AsyncPromiseStreamState<Result, Datum>::call_data_callback(Datum& datum)
+void AsyncPromiseStreamState<Result, Datum>::call_data_callback(Datum datum)
 {
 	auto functor = [this, datum = move(datum)] () mutable {
 		PromiseStreamState<Result, Datum>::call_data_callback(move(datum));
@@ -29,7 +29,7 @@ void AsyncPromiseStreamState<Result, Datum>::call_data_callback(Datum& datum)
 }
 
 template <typename Result, typename Datum>
-auto AsyncPromiseStreamState<Result, Datum>::resolve_completer(Result&& result)
+auto AsyncPromiseStreamState<Result, Datum>::resolve_completer(Result result)
 	-> completer_func
 {
 	auto functor = PromiseStreamState<Result, Datum>::bind_resolve(move(result));
@@ -71,10 +71,10 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 	const EventLoopPool reaction_pool)
 {
 	auto newFactory = [factory, producer_pool, consumer_pool, reaction_pool]
-		(EventLoop& loop, Args... args)
+		(EventLoop& loop, Args&&... args)
 	{
 		PromiseStream<Result, Datum> stream;
-		auto resolve = [stream, reaction_pool, &loop] (Result& result) -> void
+		auto resolve = [stream, reaction_pool, &loop] (Result result) -> void
 		{
 			auto proxy = [stream, result = move(result)]
 				(EventLoop&) mutable -> void
@@ -92,7 +92,7 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 			loop.push(reaction_pool, proxy);
 		};
 		auto consumer = [stream, consumer_pool, &loop, resolve, reject]
-			(Datum& datum) -> Promise<StreamAction>
+			(Datum datum) -> Promise<StreamAction>
 		{
 			Promise<StreamAction> consumer_action;
 			auto proxy = [stream, consumer_action, datum = move(datum)]

@@ -20,9 +20,9 @@ public:
 		const EventLoopPool stream_pool,
 		const EventLoopPool react_pool = EventLoopPool::same);
 protected:
-	virtual void call_data_callback(Datum&) override;
+	virtual void call_data_callback(Datum) override;
 	using completer_func = typename PromiseStreamState<Result, Datum>::completer_func;
-	virtual completer_func resolve_completer(Result&&) override;
+	virtual completer_func resolve_completer(Result) override;
 	virtual completer_func reject_completer(exception_ptr) override;
 private:
 	EventLoop& loop;

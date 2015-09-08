@@ -216,7 +216,7 @@ public:
 	template <typename... Args>
 	void write(Args&&...);
 	/* Resolve / reject */
-	void resolve(Result&& result);
+	void resolve(Result result);
 	void reject(exception_ptr error);
 	void reject(const string& error);
 	/* Stop has been requested */
@@ -227,43 +227,43 @@ public:
 	Promise<Result> stop();
 	/* Stateless consumer returning promise */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_promise_is, Result, Datum&>
+	stream_sel<Consumer, result_of_promise_is, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateless consumer returning action */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_not_promise_is, Result, Datum&>
+	stream_sel<Consumer, result_of_not_promise_is, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateful consumer returning promise */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum&>
+	stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 	/* Stateful consumer returning action */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum&>
+	stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 protected:
 	/* Is data queued? */
 	bool has_data(ensure_locked) const;
 	/* Call the on_data callback */
-	virtual void call_data_callback(Datum&);
+	virtual void call_data_callback(Datum);
 	/* Bind resolve/reject dispatchers */
 	using completer_func = typename PromiseStreamStateBase::completer_func;
-	virtual completer_func resolve_completer(Result&&);
+	virtual completer_func resolve_completer(Result);
 	virtual completer_func reject_completer(exception_ptr);
 	/* Promise proxy for result of streaming operation */
 	Promise<Result> proxy_promise;
 private:
 	Promise<Result> always(StreamAction);
-	using stream_consumer = function<Promise<StreamAction>(Datum&)>;
+	using stream_consumer = function<Promise<StreamAction>(Datum)>;
 	template <typename State>
 	using stateful_stream_consumer =
-		function<Promise<StreamAction>(State&, Datum&)>;
+		function<Promise<StreamAction>(State&, Datum)>;
 	Promise<Result> do_stream(stream_consumer consumer);
 	template <typename State, typename... Args>
 	Promise<pair<State, Result>> do_stateful_stream(
 		stateful_stream_consumer<State> consumer,
 		Args&&... args);
-	using DataFunc = function<Promise<StreamAction>(Datum&)>;
+	using DataFunc = function<Promise<StreamAction>(Datum)>;
 	/* Buffer */
 	queue<Datum> buffer{};
 	template <typename... Args>
@@ -274,7 +274,7 @@ private:
 	/* Call consumer */
 	void process_data();
 	/* Capture value and set resolve/reject completer */
-	void do_resolve(ensure_locked, Result&&);
+	void do_resolve(ensure_locked, Result);
 	void do_reject(ensure_locked, exception_ptr, bool consumer_failed);
 };
 
@@ -296,36 +296,22 @@ class PromiseStream : public PromiseLike {
 	static_assert(!is_void<Datum>::value, "Void promise streams are not supported");
 	static_assert(!is_promise<Datum>::value, "Promise of promise is probably not intended");
 public:
-	using DResult = typename remove_cvr<Result>::type;
-	using RResult = DResult&;
-	using XResult = DResult&&;
-	static constexpr bool is_promise_stream = true;
 	using result_type = Result;
 	using datum_type = Datum;
 	/* Promise stream */
 	PromiseStream();
-	/* Resolved promise stream */
-	PromiseStream(Result&& result);
-	/* Rejected promise stream */
-	PromiseStream(const nullptr_t dummy, exception_ptr error);
-	PromiseStream(const nullptr_t dummy, const string& error);
 	/* Copy/move/cast constructors */
-	PromiseStream(const PromiseStream<DResult, Datum>&);
-	PromiseStream(const PromiseStream<RResult, Datum>&);
-	PromiseStream(const PromiseStream<XResult, Datum>&);
 	PromiseStream(PromiseStream<Result, Datum>&&) = default;
+	PromiseStream(const PromiseStream<Result, Datum>&) = default;
 	/* Assignment */
 	PromiseStream<Result, Datum>& operator =(PromiseStream<Result, Datum>&&) = default;
 	PromiseStream<Result, Datum>& operator =(const PromiseStream<Result, Datum>&) = default;
 	/* Access promise state (then/except/finally/resolve/reject) */
-	PromiseStreamState<DResult, Datum> *operator ->() const;
+	PromiseStreamState<Result, Datum> *operator ->() const;
 protected:
-	PromiseStream(shared_ptr<PromiseStreamState<DResult, Datum>> const stream);
+	PromiseStream(shared_ptr<PromiseStreamState<Result, Datum>> const stream);
 private:
-	friend class PromiseStream<DResult, Datum>;
-	friend class PromiseStream<RResult, Datum>;
-	friend class PromiseStream<XResult, Datum>;
-	shared_ptr<PromiseStreamState<DResult, Datum>> stream;
+	shared_ptr<PromiseStreamState<Result, Datum>> stream;
 };
 
 namespace promise {
