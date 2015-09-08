@@ -1,9 +1,9 @@
 #define promise_tcc
-#include <exception>
 #include <stdexcept>
-#include <mutex>
 #include "tuple_iteration.h"
 #include "promise.h"
+
+#include <iostream>
 
 namespace kaiu {
 
@@ -11,12 +11,14 @@ using namespace std;
 
 /*** callback_pack ***/
 
+namespace promise {
+
 template <typename Range, typename Domain>
 template <typename NextRange>
-auto promise::callback_pack<Range, Domain>::
-	bind(promise::callback_pack<NextRange, Range> after) const
+auto callback_pack<Range, Domain>::
+	bind(const callback_pack<NextRange, Range> after) const
 {
-	return promise::callback_pack<NextRange, Domain>(
+	return callback_pack<NextRange, Domain>(
 		[after, next=next] (Domain d) {
 			if (next) {
 				return next(move(d))->then(after);
@@ -25,19 +27,50 @@ auto promise::callback_pack<Range, Domain>::
 			}
 		},
 		[after, handler=handler] (exception_ptr error) {
+			try {
+				rethrow_exception(error);
+			} catch (exception& e) {
+				std::cout << "Error: " << e.what() << std::endl;
+			}
 			if (handler) {
 				return handler(error)->then(after);
 			} else {
-				return after.rejected(error);
+				return after(error);
 			}
 		}
 	);
 }
 
 template <typename Range, typename Domain>
-promise::callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
+callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
 	next(next), handler(handler), finalizer(finalizer)
 {
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::call(const Promise<Domain> d) const
+{
+	return d->then(*this);
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::operator () (const Promise<Domain> d) const
+{
+	return call(d);
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::operator () (Domain d) const
+{
+	return call(promise::resolved<Domain>(move(d)));
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::operator () (exception_ptr error) const
+{
+	return call(promise::rejected<Domain>(error));
+}
+
 }
 
 /*** PromiseState ***/
@@ -309,6 +342,9 @@ Factory<Result, Args...> factory(Result (*func)(Args...))
 template <typename Result, typename... Args>
 Factory<Result, Args...> factory(function<Result(Args...)> func)
 {
+	if (func == nullptr) {
+		return nullptr;
+	}
 	Factory<Result, Args...> factory_function = [func] (Args&&... args) {
 		try {
 			return promise::resolved<Result>(func(forward<Args>(args)...));
@@ -316,11 +352,7 @@ Factory<Result, Args...> factory(function<Result(Args...)> func)
 			return promise::rejected<Result>(current_exception());
 		}
 	};
-	if (func == nullptr) {
-		return nullptr;
-	} else {
-		return factory_function;
-	}
+	return factory_function;
 }
 
 /*** Combine multiple heterogenous promises into one promise ***/

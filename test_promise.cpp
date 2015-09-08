@@ -408,6 +408,11 @@ void monadic_test()
 		throw logic_error("Promise flow control broken");
 		return promise::resolved(0);
 	}};
+	/* Rethrow, testing (delete this) */
+	Factory<int, exception_ptr> rethrow {[] (exception_ptr err) {
+		rethrow_exception(err);
+		return promise::resolved(0);
+	}};
 	/* Consume error, return new value */
 	auto must_catch = [] (int value) -> Factory<int, exception_ptr> {
 		return [value] (exception_ptr) {
@@ -445,7 +450,7 @@ void monadic_test()
 		 * segfault triggers here, but not when shifted right one place - so the
 		 * rejected promise is not being propagated along the monad chain.
 		 */
-		auto chain = add(100) >>= div(0)/catcher >>= test_fail >>=
+		auto chain = add(100) >>= div(0)/catcher >>= test_fail/rethrow >>=
 			test_fail/must_catch(69) >>= div(3)/catcher >>= test(23)/catcher;
 		chain(1);
 		t.end();
