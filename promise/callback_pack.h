@@ -31,7 +31,7 @@ public:
 	/* Bind callbacks to promise */
 	Promise<Range> operator () (const Promise<Domain> d) const;
 	Promise<Range> operator () (Domain d) const;
-	Promise<Range> operator () (exception_ptr error) const;
+	Promise<Range> reject(exception_ptr error) const;
 	const Next next;
 	const Handler handler;
 	const Finalizer finalizer;

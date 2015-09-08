@@ -280,7 +280,7 @@ public:
 	void forward_to(NextPromise next);
 	/* Bind a callback pack */
 	template <typename Range>
-	Promise<Range> then(const promise::callback_pack<Range, Result>&);
+	Promise<Range> then(const promise::callback_pack<Range, Result>);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
 	using ThenResult = typename result_of<Next(Result)>::type;
@@ -291,7 +291,8 @@ public:
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
 			!is_promise<NextResult>::value &&
-			!is_void<NextResult>::value
+			!is_void<NextResult>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	Promise<NextResult> then(
 			Next next_func,
@@ -305,7 +306,8 @@ public:
 		typename Except = ExceptFunc<NextPromise>,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
-			is_promise<NextPromise>::value
+			is_promise<NextPromise>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	Promise<NextResult> then(
 			Next next_func,
@@ -318,7 +320,8 @@ public:
 		typename Except = ExceptVoidFunc,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
-			is_void<NextResult>::value
+			is_void<NextResult>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	void then(
 		Next next_func,

@@ -3,8 +3,6 @@
 #include "tuple_iteration.h"
 #include "promise.h"
 
-#include <iostream>
-
 namespace kaiu {
 
 using namespace std;
@@ -19,32 +17,13 @@ auto callback_pack<Range, Domain>::
 	bind(const callback_pack<NextRange, Range> after) const
 {
 	return callback_pack<NextRange, Domain>(
-		[after, next=next] (Domain d) {
-			if (next) {
-				return next(move(d))->then(after);
-			} else {
-				return after(move(d));
-			}
+		[after, self=*this] (Domain d) -> Promise<NextRange> {
+			return self(move(d))->then(after);
 		},
-		[after, handler=handler] (exception_ptr error) {
-			try {
-				rethrow_exception(error);
-			} catch (exception& e) {
-				std::cout << "Error: " << e.what() << std::endl;
-			}
-			if (handler) {
-				return handler(error)->then(after);
-			} else {
-				return after(error);
-			}
+		[after, self=*this] (exception_ptr error) -> Promise<NextRange> {
+			return self.reject(error)->then(after);
 		}
 	);
-}
-
-template <typename Range, typename Domain>
-callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
-	next(next), handler(handler), finalizer(finalizer)
-{
 }
 
 template <typename Range, typename Domain>
@@ -66,9 +45,15 @@ Promise<Range> callback_pack<Range, Domain>::operator () (Domain d) const
 }
 
 template <typename Range, typename Domain>
-Promise<Range> callback_pack<Range, Domain>::operator () (exception_ptr error) const
+Promise<Range> callback_pack<Range, Domain>::reject(exception_ptr error) const
 {
 	return call(promise::rejected<Domain>(error));
+}
+
+template <typename Range, typename Domain>
+callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
+	next(next), handler(handler), finalizer(finalizer)
+{
 }
 
 }
@@ -112,7 +97,7 @@ void PromiseState<Result>::forward_to(NextPromise next)
 template <typename Result>
 template <typename Range>
 Promise<Range> PromiseState<Result>::then(
-	const promise::callback_pack<Range, Result>& pack)
+	const promise::callback_pack<Range, Result> pack)
 {
 	return then(pack.next, pack.handler, pack.finalizer);
 }

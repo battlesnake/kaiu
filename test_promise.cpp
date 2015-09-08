@@ -40,6 +40,9 @@ Assertions assert({
 	{ "OATH", "Then: omit 'handler'" },
 	{ "OATF", "Then: omit 'finalizer'" },
 	{ nullptr, "Promise monad" },
+	{ "MONADB1", "Basic flow test #1 (next)" },
+	{ "MONADB2", "Basic flow test #2 (handler)" },
+	{ "MONADB3", "Basic flow test #2 (finalizer)" },
 	{ "MONAD1", "Chain #1" },
 	{ "MONAD2", "Chain #2" },
 	{ "MONADE1", "Exception handling #1" },
@@ -332,13 +335,71 @@ void static_checks()
 			});
 }
 
-/* Easier than planting breakpoints in gdb */
-void do_segfault()
+void monad_basic_test()
 {
-	*(int *)0 = 42;
+	using promise::Factory;
+	using promise::callback_pack;
+	Factory<int, int> f1 {[] (int x) {
+		return promise::resolved(x + 1);
+	}};
+	Factory<int, int> f2 {[] (int x) {
+		return promise::resolved(x * 2);
+	}};
+	Factory<int, int> thrower {[] (int x) {
+		throw runtime_error("Lol");
+		return promise::resolved(x);
+	}};
+	Factory<int, exception_ptr> h1 {[] (exception_ptr) {
+		return promise::resolved(100);
+	}};
+	auto make_final = [] (int& result) {
+		return function<void()> {[&result] {
+			result = 100;
+		}};
+	};
+	{
+		auto ch = callback_pack<int, int>{f1}.bind(callback_pack<int, int>{f2});
+		int result = -1;
+		ch(10)->then([&] (int x) { result = x; }, [&] (auto) { result = -2; });
+		if (result == -1) {
+			assert.fail("MONADB1", "callback_pack::call did not work");
+		} else if (result == -2) {
+			assert.fail("MONADB1", "callback_pack::call threw");
+		} else if (result == 21) {
+			assert.fail("MONADB1", "callback_pack chain fired in wrong order");
+		} else if (result != 22) {
+			assert.fail("MONADB1", "callback_pack chain did something strange");
+		} else {
+			assert.pass("MONADB1");
+		}
+	}
+	{
+		auto ch = callback_pack<int, int>{thrower}.bind(callback_pack<int, int>{f2, h1});
+		int result = -1;
+		ch(10)->then([&] (int x) { result = x; }, [&] (auto) { result = -2; });
+		if (result == -1) {
+			assert.fail("MONADB2", "callback_pack::call did not work");
+		} else if (result == -2) {
+			assert.fail("MONADB2", "exception handler failed or was ignored");
+		} else if (result != 100) {
+			assert.fail("MONADB2", "callback_pack chain did something strange");
+		} else {
+			assert.pass("MONADB2");
+		}
+	}
+	{
+		int result = -1;
+		auto ch = callback_pack<int, int>{thrower}.bind(callback_pack<int, int>{f2, h1, make_final(result)});
+		ch(10);
+		if (result != 100) {
+			assert.fail("MONADB3", "callback_pack finalizer was not called");
+		} else {
+			assert.pass("MONADB3");
+		}
+	}
 }
 
-void monadic_test()
+void monad_chain_test()
 {
 	using promise::Factory;
 	using namespace promise::monads;
@@ -419,19 +480,7 @@ void monadic_test()
 			return promise::resolved(value);
 		};
 	};
-	Factory<int, int> then_segfault {[] (int value) {
-		do_segfault();
-		return promise::resolved(0);
-	}};
-	Factory<int, exception_ptr> except_segfault {[] (exception_ptr) {
-		do_segfault();
-		return promise::resolved(0);
-	}};
-	function<void()> finally_segfault {[] () {
-		do_segfault();
-	}};
 	auto eat_error = [] (exception_ptr) { };
-	auto segfault = then_segfault/except_segfault/finally_segfault;
 	{
 		auto t = begin_test("MONAD1");
 		auto chain = sqr >>= test(169)/catcher >>= add(31) >>= div(20) >>= test(10)/catcher;
@@ -446,10 +495,6 @@ void monadic_test()
 	}
 	{
 		auto t = begin_test("MONADE1");
-		/*
-		 * segfault triggers here, but not when shifted right one place - so the
-		 * rejected promise is not being propagated along the monad chain.
-		 */
 		auto chain = add(100) >>= div(0)/catcher >>= test_fail/rethrow >>=
 			test_fail/must_catch(69) >>= div(3)/catcher >>= test(23)/catcher;
 		chain(1);
@@ -472,7 +517,8 @@ try {
 	dynamic_combine_test();
 	efficiency_test();
 	static_checks();
-	monadic_test();
+	monad_basic_test();
+	monad_chain_test();
 	return assert.print(argc, argv);
 } catch (...) {
 	assert.print_error();
