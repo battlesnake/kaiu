@@ -4,7 +4,11 @@ mode ?= debug
 
 show_mode_and_goals := $(shell >&2 printf -- "\e[4m%s: [%s]\e[0m\n" "$$(echo $(mode) | tr [:lower:] [:upper:] )" "$(MAKECMDGOALS)")
 
-define_cc_proxy = function cc_proxy {( set -euo pipefail; echo "g++ $$*"; g++ 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; )}
+# Compiler to use
+CXX ?= g++
+# Proxy which prettifies g++ output if prettifier is found, and deletes output file if compilation failed
+define_cc_proxy = function cc_proxy {( set -euo pipefail; echo "$(CXX) $$*"; $(CXX) 2>&1 "$$@" | ( which c++-color &>/dev/null && c++-color || cat ) || { rm -f -- "$@"; false; }; )}
+
 cc := cc_proxy
 
 cc_base := -pipe -pedantic -std=c++14
@@ -41,7 +45,7 @@ outdirs := test/ dep/ out/ obj/
 
 .SHELLFLAGS: -euo pipefail -c
 
-default: tests
+.DEFAULT: tests
 
 syntax:
 	@$(define_cc_proxy)

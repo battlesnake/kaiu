@@ -1,13 +1,62 @@
 #define promise_tcc
-#include <exception>
 #include <stdexcept>
-#include <mutex>
 #include "tuple_iteration.h"
 #include "promise.h"
 
 namespace kaiu {
 
 using namespace std;
+
+/*** callback_pack ***/
+
+namespace promise {
+
+template <typename Range, typename Domain>
+template <typename NextRange>
+auto callback_pack<Range, Domain>::
+	bind(const callback_pack<NextRange, Range> after) const
+{
+	return callback_pack<NextRange, Domain>(
+		[after, self=*this] (Domain d) -> Promise<NextRange> {
+			return self(move(d))->then(after);
+		},
+		[after, self=*this] (exception_ptr error) -> Promise<NextRange> {
+			return self.reject(error)->then(after);
+		}
+	);
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::call(const Promise<Domain> d) const
+{
+	return d->then(*this);
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::operator () (const Promise<Domain> d) const
+{
+	return call(d);
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::operator () (Domain d) const
+{
+	return call(promise::resolved<Domain>(move(d)));
+}
+
+template <typename Range, typename Domain>
+Promise<Range> callback_pack<Range, Domain>::reject(exception_ptr error) const
+{
+	return call(promise::rejected<Domain>(error));
+}
+
+template <typename Range, typename Domain>
+callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handler, const Finalizer finalizer) :
+	next(next), handler(handler), finalizer(finalizer)
+{
+}
+
+}
 
 /*** PromiseState ***/
 
@@ -18,16 +67,16 @@ void PromiseState<Result>::set_result(ensure_locked lock, Result&& value)
 }
 
 template <typename Result>
-Result& PromiseState<Result>::get_result(ensure_locked lock)
+Result PromiseState<Result>::get_result(ensure_locked lock)
 {
-	return result;
+	return move(result);
 }
 
 template <typename Result>
-void PromiseState<Result>::resolve(Result&& result)
+void PromiseState<Result>::resolve(Result result)
 {
 	auto lock = get_lock();
-	set_result(lock, forward<Result>(result));
+	set_result(lock, move(result));
 	set_state(lock, promise_state::resolved);
 }
 
@@ -43,6 +92,14 @@ void PromiseState<Result>::forward_to(NextPromise next)
 		next->reject(get_error(lock));
 	};
 	set_callbacks(lock, resolve, reject);
+}
+
+template <typename Result>
+template <typename Range>
+Promise<Range> PromiseState<Result>::then(
+	const promise::callback_pack<Range, Result> pack)
+{
+	return then(pack.next, pack.handler, pack.finalizer);
 }
 
 template <typename Result>
@@ -135,9 +192,9 @@ void PromiseState<Result>::then(
 	const Except except_func,
 	const Finally finally_func)
 {
-	NextFunc<nullptr_t> then_forward = [next_func] (Result& result) {
+	NextFunc<nullptr_t> then_forward = [next_func] (Result result) {
 		if (NextVoidFunc(next_func) != nullptr) {
-			next_func(result);
+			next_func(move(result));
 		}
 		return (nullptr_t) nullptr;
 	};
@@ -153,23 +210,23 @@ void PromiseState<Result>::then(
 
 template <typename Result>
 template <typename NextResult, typename>
-NextResult&& PromiseState<Result>::forward_result(Result& result)
+NextResult PromiseState<Result>::forward_result(Result result)
 {
-	return static_cast<Result&&>(result);
+	return result;
 }
 
 template <typename Result>
 template <typename NextResult, int dummy, typename>
-NextResult&& PromiseState<Result>::forward_result(Result& result)
+NextResult PromiseState<Result>::forward_result(Result result)
 {
 	throw logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
 }
 
 template <typename Result>
 template <typename NextResult>
-Promise<NextResult> PromiseState<Result>::default_next(Result& result)
+Promise<NextResult> PromiseState<Result>::default_next(Result result)
 {
-	return promise::resolved<NextResult>(forward_result<NextResult>(result));
+	return promise::resolved<NextResult>(forward_result<NextResult>(move(result)));
 }
 
 template <typename Result>
@@ -219,13 +276,13 @@ Promise<Result>::Promise(const Promise<DResult>& p) :
 }
 
 template <typename Result>
-Promise<Result>::Promise(const Promise<RResult>& p) :
+Promise<Result>::Promise(const Promise<DResult&>& p) :
 	Promise(p.promise)
 {
 }
 
 template <typename Result>
-Promise<Result>::Promise(const Promise<XResult>& p) :
+Promise<Result>::Promise(const Promise<DResult&&>& p) :
 	Promise(p.promise)
 {
 }
@@ -236,10 +293,10 @@ namespace promise {
 /* Immediate promises */
 
 template <typename Result, typename DResult>
-Promise<DResult> resolved(Result&& result)
+Promise<DResult> resolved(Result result)
 {
 	Promise<DResult> promise;
-	promise->resolve(forward<Result>(result));
+	promise->resolve(move(result));
 	return promise;
 }
 
@@ -270,6 +327,9 @@ Factory<Result, Args...> factory(Result (*func)(Args...))
 template <typename Result, typename... Args>
 Factory<Result, Args...> factory(function<Result(Args...)> func)
 {
+	if (func == nullptr) {
+		return nullptr;
+	}
 	Factory<Result, Args...> factory_function = [func] (Args&&... args) {
 		try {
 			return promise::resolved<Result>(func(forward<Args>(args)...));
@@ -277,11 +337,7 @@ Factory<Result, Args...> factory(function<Result(Args...)> func)
 			return promise::rejected<Result>(current_exception());
 		}
 	};
-	if (func == nullptr) {
-		return nullptr;
-	} else {
-		return factory_function;
-	}
+	return factory_function;
 }
 
 /*** Combine multiple heterogenous promises into one promise ***/
@@ -295,14 +351,16 @@ struct HeterogenousCombineState {
 	size_t remaining = tuple_size<NextResult>::value;
 	bool failed = false;
 	template <typename Result, const size_t index>
-	void next(Result& result) {
+	void next(Result result)
+	{
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
 		get<index>(results) = move(result);
 	}
-	void handler(exception_ptr error) {
+	void handler(exception_ptr error)
+	{
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
@@ -312,7 +370,8 @@ struct HeterogenousCombineState {
 		}
 		nextPromise->reject(error);
 	}
-	void finally() {
+	void finally()
+	{
 		bool resolved;
 		{
 			lock_guard<mutex> lock(state_lock);
@@ -331,12 +390,16 @@ struct HeterogenousCombineIterator {
 	using State = HeterogenousCombineState<NextResult>;
 	shared_ptr<State> state;
 	template <typename PromiseType, const size_t index>
-	void operator ()(PromiseType& promise) {
+	void operator ()(PromiseType promise)
+	{
 		using Result = typename decay<PromiseType>::type::result_type;
-		promise->then(
-			bind(&State::template next<Result, index>, state, placeholders::_1),
-			bind(&State::handler, state, placeholders::_1),
-			bind(&State::finally, state));
+		const auto next = [state = state] (Result result)
+			{ return state->template next<Result, index>(move(result)); };
+		const auto handler = [state = state] (exception_ptr error)
+			{ return state->handler(error); };
+		const auto finalizer = [state = state] ()
+			{ state->finally(); };
+		promise->then(next, handler, finalizer);
 	}
 };
 
@@ -369,14 +432,16 @@ struct HomogenousCombineState {
 		results(count), remaining(count)
 			{ };
 	using Result = NextResult;
-	void next(const size_t index, Result& result) {
+	void next(const size_t index, Result result)
+	{
 		lock_guard<mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
 		results[index] = move(result);
 	}
-	void handler(exception_ptr error) {
+	void handler(exception_ptr error)
+	{
 		{
 			lock_guard<mutex> lock(state_lock);
 			if (failed) {
@@ -386,7 +451,8 @@ struct HomogenousCombineState {
 		}
 		nextPromise->reject(error);
 	}
-	void finally() {
+	void finalizer()
+	{
 		bool resolved;
 		{
 			lock_guard<mutex> lock(state_lock);
@@ -405,13 +471,15 @@ struct HomogenousCombineIterator {
 	using State = HomogenousCombineState<NextResult>;
 	shared_ptr<State> state;
 	using Result = NextResult;
-	void operator ()(Promise<Result> promise, const size_t index) {
-		using Events = PromiseState<typename Promise<Result>::DResult>;
-		using namespace placeholders;
-		typename Events::NextVoidFunc next{bind(&State::next, state, index, _1)};
-		typename Events::ExceptVoidFunc handler{bind(&State::handler, state, _1)};
-		typename Events::FinallyFunc finally{bind(&State::finally, state)};
-		promise->then(next, handler, finally);
+	void operator ()(Promise<Result> promise, const size_t index)
+	{
+		const auto next = [state = state, index] (Result result)
+			{ return state->next(index, move(result)); };
+		const auto handler = [state = state] (exception_ptr error)
+			{ return state->handler(error); };
+		const auto finalizer = [state = state] ()
+			{ return state->finalizer(); };
+		promise->then(next, handler, finalizer);
 	}
 };
 

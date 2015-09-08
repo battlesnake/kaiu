@@ -1,13 +1,20 @@
 #pragma once
 #include <functional>
-#include <atomic>
+#include <exception>
+#include <cstddef>
 #include <mutex>
 #include <memory>
-#include <cstddef>
-#include <tuple>
-#include <vector>
 #include <type_traits>
+#include <vector>
+#include <tuple>
 #include "self_managing.h"
+
+#include "promise/fwd.h"
+#include "promise/traits.h"
+#include "promise/factories.h"
+#include "promise/combiners.h"
+#include "promise/callback_pack.h"
+#include "promise/monad.h"
 
 namespace kaiu {
 
@@ -107,98 +114,6 @@ namespace kaiu {
 
 using namespace std;
 
-template <typename T>
-using remove_cvr = remove_reference<typename remove_cv<T>::type>;
-
-class PromiseStateBase;
-
-template <typename Result> class PromiseState;
-
-template <typename Result> class Promise;
-
-/***
- * Test if a type represents a promise
- *
- * Example usage: enable_if<is_promise<T>::value>::type
- *
- * Could use is_base_of with PromiseBase (a since deleted base class), this way
- * seems more idiomatic.
- */
-
-template <typename T>
-struct is_promise {
-private:
-	template <typename U>
-	static integral_constant<bool, U::is_promise> check(int);
-	template <typename>
-	static std::false_type check(...);
-public:
-	static constexpr auto value = decltype(check<T>(0))::value;
-};
-
-namespace detail {
-	template <bool, typename T> struct result_of_promise_helper { };
-	template <typename T> struct result_of_promise_helper<true, T>
-		{ using type = typename T::result_type; };
-	template <bool, typename T> struct result_of_not_promise_helper { };
-	template <typename T> struct result_of_not_promise_helper<false, T>
-		{ using type = T; };
-}
-
-/* result_of_promise<T>: is_promise<T> ? T::result_type : fail */
-template <typename T>
-using result_of_promise = detail::result_of_promise_helper<is_promise<T>::value, T>;
-
-/* result_of_not_promise<T>: is_promise<T> ? fail : T */
-template <typename T>
-using result_of_not_promise = detail::result_of_not_promise_helper<is_promise<T>::value, T>;
-
-/* is_promise<T> && R==T::result_type */
-template <typename T, typename R>
-struct result_of_promise_is {
-private:
-	template <typename U>
-	static is_same<typename result_of_promise<U>::type, typename remove_cv<R>::type> check(int);
-	template <typename>
-	static std::false_type check(...);
-public:
-	static constexpr auto value = decltype(check<T>(0))::value;
-};
-
-/* !is_promise<T> && R==T */
-template <typename T, typename R>
-struct result_of_not_promise_is {
-private:
-	template <typename U>
-	static is_same<typename result_of_not_promise<U>::type, typename remove_cv<R>::type> check(int);
-	template <typename>
-	static std::false_type check(...);
-public:
-	static constexpr auto value = decltype(check<T>(0))::value;
-};
-
-/*
- * Result type of a promise cannot derive from (or be) PromiseLike.
- *
- * TODO:
- *   Automatically transform Promise<PromiseLike>
- *     to
- *   Promise<typename result_of_promise<PromiseLike>::type>
- *     via forward_to(...) method of PromiseLike
- *     when PromiseLike is specified as return type of a Promise
- *
- * PromiseLike should support ->resolve ->reject ->forward_to:
- *   void resolve(T&&)
- *   void reject(exception_ptr)
- *   void reject(const string&)
- *   void forward_to(PromiseLike)
- */
-class PromiseLike {
-};
-
-template <typename T>
-using is_promise_like = is_base_of<PromiseLike, T>;
-
 /***
  * Promise class
  *
@@ -208,20 +123,15 @@ using is_promise_like = is_base_of<PromiseLike, T>;
 
 template <typename Result>
 class Promise : public PromiseLike {
-	static_assert(!is_void<Result>::value, "Void promises are no longer supported");
-	static_assert(!is_promise<Result>::value, "Promise<Promise<T>> is invalid, use Promise<T> instead");
 public:
 	using DResult = typename remove_cvr<Result>::type;
-	using RResult = DResult&;
-	using XResult = DResult&&;
-	static constexpr bool is_promise = true;
 	using result_type = DResult;
 	/* Promise */
 	Promise();
 	/* Copy/move/cast constructors */
 	Promise(const Promise<DResult>&);
-	Promise(const Promise<RResult>&);
-	Promise(const Promise<XResult>&);
+	Promise(const Promise<DResult&>&);
+	Promise(const Promise<DResult&&>&);
 	Promise(Promise<Result>&&) = default;
 	/* Assignment */
 	Promise<Result>& operator =(Promise<Result>&&) = default;
@@ -230,20 +140,14 @@ public:
 	PromiseState<DResult> *operator ->() const;
 private:
 	friend class Promise<DResult>;
-	friend class Promise<RResult>;
-	friend class Promise<XResult>;
+	friend class Promise<DResult&>;
+	friend class Promise<DResult&&>;
+	static_assert(!is_void<DResult>::value, "Void promises are no longer supported");
+	static_assert(!is_same<DResult, exception_ptr>::value, "Promise result type cannot be exception_ptr");
+	static_assert(!is_promise<DResult>::value, "Promise<Promise<T>> is invalid, use Promise<T>/forward_to instead");
 	Promise(shared_ptr<PromiseState<DResult>> const promise);
 	shared_ptr<PromiseState<DResult>> promise;
 };
-
-static_assert(is_promise<Promise<int>>::value, "Promise traits test #1 failed");
-static_assert(!is_promise<int>::value, "Promise traits test #2 failed");
-static_assert(result_of_promise_is<Promise<int>, int>::value, "Promise traits test #3 failed");
-static_assert(!result_of_promise_is<Promise<int>, long>::value, "Promise traits test #4 failed");
-static_assert(!result_of_promise_is<int, int>::value, "Promise traits test #5 failed");
-static_assert(result_of_not_promise_is<int, int>::value, "Promise traits test #6 failed");
-static_assert(!result_of_not_promise_is<int, long>::value, "Promise traits test #7 failed");
-static_assert(!result_of_not_promise_is<Promise<int>, int>::value, "Promise traits test #8 failed");
 
 /***
  * Untyped promise state
@@ -259,6 +163,8 @@ public:
 	/* No copy/move constructor */
 	PromiseStateBase(PromiseStateBase const&) = delete;
 	PromiseStateBase(PromiseStateBase&&) = delete;
+	PromiseStateBase operator =(PromiseStateBase const&) = delete;
+	PromiseStateBase operator =(PromiseStateBase&&) = delete;
 #if defined(DEBUG)
 	/* Destructor */
 	~PromiseStateBase() noexcept(false);
@@ -341,31 +247,6 @@ private:
  *
  * The PromiseState<T> is aggregated onto the Promise<T> via the member (->)
  * operator.
- *
- * Promise<string> get_username(int user_id)
- * {
- *     Promise<string> promise;
- *
- *     run_query(
- *         "SELECT `username` FROM `user` WHERE `user`=" + to_string(user_id),
- *         "username",
- *         [promise] (string& result) {
- *             promise->resolve(result);
- *         },
- *         [promise] (string& error) {
- *             promise->reject(result);
- *         });
- *
- *     return promise;
- * }
- *
- * get_user_id(session)
- *     ->then(get_username)
- *     ->then(send_string(connection))
- *     ->except([] (auto error) {
- *         ( handle error )
- *     });
- *
  */
 
 template <typename Result>
@@ -376,7 +257,7 @@ public:
 		"Type parameter for promise internal state must not be cv-qualified or a reference");
 	/* "then" and "except" returning new value or next promise */
 	template <typename NextResult = Result>
-		using NextFunc = function<NextResult(Result&)>;
+		using NextFunc = function<NextResult(Result)>;
 	template <typename NextResult = Result>
 		using ExceptFunc = function<NextResult(exception_ptr)>;
 	/* "then" and "except" ending promise chain */
@@ -391,15 +272,18 @@ public:
 	PromiseState(PromiseState<Result>&&) = delete;
 	PromiseState(const PromiseState<Result>&) = delete;
 	/* Resolve */
-	void resolve(Result&& result);
+	void resolve(Result result);
 	/* Reject */
 	using PromiseStateBase::reject;
 	/* Forwards the result of this promise to another promise */
 	template <typename NextPromise>
 	void forward_to(NextPromise next);
+	/* Bind a callback pack */
+	template <typename Range>
+	Promise<Range> then(const promise::callback_pack<Range, Result>);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
-	using ThenResult = typename result_of<Next(Result&)>::type;
+	using ThenResult = typename result_of<Next(Result)>::type;
 	template <
 		typename Next,
 		typename NextResult = ThenResult<Next>,
@@ -407,12 +291,13 @@ public:
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
 			!is_promise<NextResult>::value &&
-			!is_void<NextResult>::value
+			!is_void<NextResult>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	Promise<NextResult> then(
-			Next /* NextFunc<NextResult> */ next_func,
-			Except /* ExceptFunc<NextResult> */ except_func = nullptr,
-			Finally /* FinallyFunc */ finally_func = nullptr);
+			Next next_func,
+			Except except_func = nullptr,
+			Finally finally_func = nullptr);
 	/* Then (callbacks return promise) */
 	template <
 		typename Next,
@@ -421,12 +306,13 @@ public:
 		typename Except = ExceptFunc<NextPromise>,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
-			is_promise<NextPromise>::value
+			is_promise<NextPromise>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	Promise<NextResult> then(
-			Next /* NextFunc<Promise<NextResult>> */ next_func,
-			Except /* ExceptFunc<Promise<NextResult>> */ except_func = nullptr,
-			Finally /* FinallyFunc */ finally_func = nullptr);
+			Next next_func,
+			Except except_func = nullptr,
+			Finally finally_func = nullptr);
 	/* Then (end promise chain) */
 	template <
 		typename Next,
@@ -434,12 +320,13 @@ public:
 		typename Except = ExceptVoidFunc,
 		typename Finally = FinallyFunc,
 		typename = typename enable_if<
-			is_void<NextResult>::value
+			is_void<NextResult>::value &&
+			!is_callback_pack<Next>::value
 		>::type>
 	void then(
-		Next /* NextVoidFunc */ next_func,
-		Except /* ExceptVoidFunc */ except_func = nullptr,
-		Finally /* FinallyFunc */ finally_func = nullptr);
+		Next next_func,
+		Except except_func = nullptr,
+		Finally finally_func = nullptr);
 	/* Except */
 	template <
 		typename Except,
@@ -449,7 +336,7 @@ public:
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> except(
-		Except /* ExceptFunc<Promise<NextResult>> */ except_func)
+		Except except_func)
 			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); }
 	template <
 		typename Except,
@@ -459,7 +346,7 @@ public:
 			!is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> except(
-		Except /* ExceptFunc<NextResult> */ except_func)
+		Except except_func)
 			{ return then<NextFunc<NextResult>>(nullptr, except_func); }
 	/* Except (end promise chain) */
 	template <
@@ -469,119 +356,46 @@ public:
 			is_void<NextResult>::value
 		>::type>
 	void except(
-		Except /* ExceptVoidFunc */ except_func)
-			{ then<void>(nullptr, except_func); }
+		Except except_func)
+			{ then<NextVoidFunc>(nullptr, except_func); }
 	/* Finally */
 	template <typename Finally>
 	Promise<Result> finally(
-		Finally /* FinallyFunc */ finally_func)
+		Finally finally_func)
 			{ return then<NextFunc<Result>>(nullptr, nullptr, finally_func); }
 	/* Make terminator with finalizer */
 	template <typename Finally>
-	void finish(Finally /* FinallyFunc */ finally_func)
+	void finish(Finally finally_func)
 		{ finally(finally_func)->finish(); }
 	using PromiseStateBase::finish;
 protected:
 	/* Get/set promise result */
 	void set_result(ensure_locked, Result&& value);
-	Result& get_result(ensure_locked);
+	Result get_result(ensure_locked);
 private:
 	Result result;
 	/* Helper functions to pass current value onwards if no 'next' callback */
 	template <typename NextResult,
 		typename = typename enable_if<is_same<Result, NextResult>::value>::type>
-	static NextResult&& forward_result(Result& result);
+	static NextResult forward_result(Result result);
 	template <typename NextResult, int dummy = 0,
 		typename = typename enable_if<!is_same<Result, NextResult>::value>::type>
-	static NextResult&& forward_result(Result& result);
+	static NextResult forward_result(Result result);
 	template <typename NextResult>
-	static Promise<NextResult> default_next(Result& result);
+	static Promise<NextResult> default_next(Result result);
 	template <typename NextResult>
 	static Promise<NextResult> default_except(exception_ptr error);
 	static void default_finally();
 };
 
-/*** Utils ***/
-namespace promise {
-
-/* Construct a resolved promise */
-
-template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> resolved(Result&& result);
-
-/* Construct a rejected promise */
-
-template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> rejected(exception_ptr error);
-
-template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> rejected(const string& error);
-
-/*
- * Convert function to promise factory
- *
- * Result(Args...) => Promise<Result>(Args...)
- *
- * Takes function func and returns a new function which when invoked, returns a
- * promise and calls func.  The return value of func is used to resolve the
- * promise.  If func throws, then the exception is caught and the promise is
- * rejected.
- *
- * Since func returns synchronously, the promise factory will evaluate func
- * BEFORE returning.  This is not a magic way to make synchronous functions
- * asynchronous, it just makes them useable in promise chains.  For a magic way
- * to make synchronous functions asynchronous, use std::thread or
- * kaiu::promise::task.
- *
- * Returns nullptr iff func==nullptr
- */
-
-template <typename Result, typename... Args>
-using Factory = function<Promise<Result>(Args...)>;
-
-nullptr_t factory(nullptr_t);
-
-template <typename Result, typename... Args>
-Factory<Result, Args...> factory(Result (*func)(Args...));
-
-template <typename Result, typename... Args>
-Factory<Result, Args...> factory(function<Result(Args...)> func);
-
-/*** Combinators ***/
-
-/*
- * Returns a Promise<tuple> that resolves to a tuple of results when all
- * given promises have resolved, or which rejects if any of them reject
- * (without waiting for the others to complete).
- *
- * Think of this as a map() operation over a possibly heterogenous ordered set
- * of promises, which transforms the set into a tuple containing the results of
- * the promises.
- */
-template <typename... Result>
-Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... promise);
-
-/*
- * Takes an iterable of homogenous promises and returns a single promise that
- * resolves to a vector containing the results of the given promises.
- *
- * Think of this as a map() operation over a homogenous ordered set of promises,
- * transforming the set into an vector containing the results of the promises.
- *
- * Using std::vector for result rather than std::array, as the latter does not
- * support move semantics.
- */
-
-template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
-Promise<vector<Result>> combine(It first, It last, const size_t size);
-
-template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
-Promise<vector<Result>> combine(It first, It last);
-
-template <typename List, typename Result = typename remove_cvr<typename List::value_type::result_type>::type>
-Promise<vector<Result>> combine(List promises);
-
-}
+static_assert(is_promise<Promise<int>>::value, "Promise traits test #1 failed");
+static_assert(!is_promise<int>::value, "Promise traits test #2 failed");
+static_assert(result_of_promise_is<Promise<int>, int>::value, "Promise traits test #3 failed");
+static_assert(!result_of_promise_is<Promise<int>, long>::value, "Promise traits test #4 failed");
+static_assert(!result_of_promise_is<int, int>::value, "Promise traits test #5 failed");
+static_assert(result_of_not_promise_is<int, int>::value, "Promise traits test #6 failed");
+static_assert(!result_of_not_promise_is<int, long>::value, "Promise traits test #7 failed");
+static_assert(!result_of_not_promise_is<Promise<int>, int>::value, "Promise traits test #8 failed");
 
 }
 

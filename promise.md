@@ -30,6 +30,13 @@ really be an inner class of `Promise` (with single then+finish methods and the
 rest as proxy methods on `Promise`), but that would make the header file
 considerably less readable.
 
+By wrapping the operations of your application in promises from day #1, you can
+move parts of the program to other processes, or to other machines (physical or
+virtual).  By using promise-returning functions to access objects, converting
+local objects to remote objects requires no changes to the code that uses those
+objects.  Likewise, converting synchronous functions to asynchronous also then
+requires no change to the code which uses those functions.
+
 Examples
 --------
 
@@ -180,6 +187,8 @@ For `Promise<X>::except(handler)`, `handler` has one of the following signatures
 
 `finalizer` takes no parameters and returns no value.
 
+	void finalizer()
+
 If using `then(next, handler [, finally])` then `next` and `handler` must have
 the same return type, i.e. both have return type "promise" (`Promise<T>`) or both
 have return type "value" (`T`), or both return void (terminating the promise
@@ -272,8 +281,65 @@ Promise result types: identical
 				}
 			});
 
+Monads / bind
+-------------
+
+Promises can be used as monads:
+
+	using kaiu::promise::monads;
+
+Given:
+
+	X :: T → Promise<U>
+	Y :: U → Promise<V>
+	Z :: V → Promise<W>
+
+The monad chain:
+
+	auto chain = X/E >>= Y >>= Z/E/F;
+	chain(initial);
+
+is the same as:
+
+	promise::resolved(initial)->then(X, E)->then(Y)->then(Z, E, F)
+
 Gotchas
 -------
+
+### Flow control
+
+The following are not the same flow graph:
+
+	A: p->then(next, handler);
+	B: p->then(next)->except(handler);
+	C: p->except(handler)->then(next);
+
+`A` will call:
+
+  1.   *either* `next` or `handler` depending on the result of the promise.
+
+`B` will call:
+
+  1. `next` if the promise resolved
+
+  2.  `handler` if either:
+
+    * the promise rejected
+
+	* `next` threw
+
+	* `next` returned a rejected promise
+
+`C` will call:
+
+  1. `handler` if the promise rejected
+
+  2. `next` if either:
+
+    * the promise resolved
+
+	* the the promise rejected, but `handler` did not throw and `handler`
+	  returned a value or a promise which resolved
 
 ### Non-copyable result, [] (const volatile auto & arg) { }
 
@@ -290,12 +356,13 @@ Typically, you will want to use `[] (auto& arg)` or `[] (const auto& arg)` in
 order to avoid un-necessary copying.  When using `auto&`, it is safe to `move`
 the value elsewhere if desired.
 
+	unique_ptr<int> the_ptr;
 	promise::resolved(make_unique<int>(1))
-		->then([] (auto& ptr) {
+		->then([&the_ptr] (auto& ptr) {
 			the_ptr = move(ptr);
 		});
 
 ### Leaks
 
 Remember to terminate promise chains, either with a `then` or `except` that
-returns void, or with a `finish`.
+returns void, or with a `finish`, to prevent leaks.
