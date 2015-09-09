@@ -3,7 +3,8 @@
 #include <sstream>
 #include <algorithm>
 #include <chrono>
-#include <signal.h>
+#include <cstdlib>
+#include <csignal>
 #include <stdio.h>
 #include "assertion.h"
 
@@ -13,36 +14,42 @@ using namespace std;
 using namespace std::chrono;
 
 Assertions *assertions;
-struct sigaction new_sigsegv;
 
-static void sigsegv_handler(int signo, siginfo_t *info, void *context)
+static void signal_handler(int signal)
 {
+	printf("\n");
 	if (assertions) {
-		printf("\x1b[5;93;41mSegfault detected, attempting to print current state of tests\x1b[0m\n");
+		if (signal == SIGSEGV) {
+			printf("\x1b[5;93;41mSegfault detected, attempting to print current state of tests\x1b[0m\n");
+		} else if (signal == SIGABRT) {
+			printf("\x1b[5;93;41mTest aborted\x1b[0m\n");
+		}
 		fflush(stdout);
 		assertions->print(true);
+	}
+	if (signal == SIGSEGV) {
 		printf("\x1b[5;93;41mSegfault detected\x1b[0m\n");
 	} else {
-		printf("Segfault detected\n");
+		printf("\x1b[5;93;41mTest aborted\x1b[0m\n");
 	}
-	exit(255);
+	fflush(stdout);
+	std::_Exit(255);
 }
 
-static void sigsegv_attach(Assertions& ass)
+static void signals_attach(Assertions& ass)
 {
 	if (!assertions) {
-		sigemptyset(&new_sigsegv.sa_mask);
-		new_sigsegv.sa_flags = SA_SIGINFO;
-		new_sigsegv.sa_sigaction = &sigsegv_handler;
-		if (sigaction(SIGSEGV, &new_sigsegv, nullptr) == 0) {
-			assertions = &ass;
-		} else {
+		if (std::signal(SIGSEGV, signal_handler) == SIG_ERR) {
 			printf("Failed to install SIGSEGV handler\n");
 		}
+		if (std::signal(SIGABRT, signal_handler) == SIG_ERR) {
+			printf("Failed to install SIGABRT handler\n");
+		}
+		assertions = &ass;
 	}
 }
 
-static void sigsegv_detach(Assertions& ass)
+static void signals_detach(Assertions& ass)
 {
 	if (assertions == &ass) {
 		assertions = nullptr;
@@ -61,12 +68,12 @@ Assertions::Assertions(const vector<pair<const char *, const char *>>& strings)
 			throw logic_error("Duplicate test: '" + string(code) + "'");
 		}
 	}
-	sigsegv_attach(*this);
+	signals_attach(*this);
 }
 
 Assertions::~Assertions()
 {
-	sigsegv_detach(*this);
+	signals_detach(*this);
 	lock_guard<mutex> lock(mx);
 	if (!printed) {
 		_print(lock, false);
