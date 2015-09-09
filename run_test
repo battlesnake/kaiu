@@ -28,6 +28,23 @@ function debug {(
 	printf >&2 '\n\e[1mDONE\e[0m\n'
 )}
 
+function debug_ide {(
+	set +e
+	local test="$1" target="$2"
+	printf -- '\n\e[1mDebug (%s)\e[0m\n' "${test}"
+	if which 2>/dev/null nemiver; then
+		nemiver --log-debugger-output --use-launch-terminal "${target}"
+	elif which 2>/dev/null kdbg; then
+		kdbg -t /dev/stderr "${target}"
+	elif which 2>/dev/null ddd; then
+		ddd --gdb --trace "${target}"
+	else
+		printf >&2 "No recognised IDE found, falling back to gdb\n"
+		debug "$@"
+	fi
+	printf >&2 '\n\e[1mDONE\e[0m\n'
+)}
+
 function memcheck_helper {(
 	set +e
 	local valtmp="$1"
@@ -135,6 +152,10 @@ while (( $# )); do
 		export mode='debug'
 		continue
 		;;
+	ide:) action='ide'
+		export mode='debug'
+		continue
+		;;
 	mem:) ;&
 	memcheck:) action='memcheck'
 		export mode='debug'
@@ -151,6 +172,7 @@ while (( $# )); do
 			"run - build with optimization and run" \
 			"rund - build without optimization and run" \
 			"debug - build without optimization and run with gdb" \
+			"ide - build without optimization and run with some IDE" \
 			"mem/memcheck - build without optimization and run with valgrind" \
 			"page - pipe build output through pager" \
 			"nopage - do not pipe build output through pager"
@@ -171,6 +193,8 @@ while (( $# )); do
 				call run "${test}" "${target}";;
 			debug)
 				call debug "${test}" "${target}";;
+			ide)
+				call debug_ide "${test}" "${target}";;
 			memcheck)
 				call memcheck "${test}" "${target}";;
 			esac
