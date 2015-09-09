@@ -26,6 +26,122 @@ enum class StreamAction {
 template <typename Result, typename Datum>
 class PromiseStream;
 
+/*
+ * What happens when you act on a promise stream?
+ *
+ * Resolve/reject:
+ *            ╭──────╮
+ *    reject ─┤ lock ├─▶ do_reject ─┬─▶ set_action
+ *            ╰──────╯              │
+ *                                  ╰─┬─▶ set_stream_result ──▶ update_state
+ *            ╭──────╮                │
+ *   resolve ─┤ lock ├─▶ do_resolve───╯
+ *            ╰──────╯
+ *
+ * Write:
+ *          ╭──────╮
+ *   write ─┤ lock ├─┬─▶ set_stream_has_been_written_to ──▶ update_state
+ *          ╰──────╯ │
+ *                   ╰─▶ process_data ─▶ ···
+ *
+ * Stream:
+ *                                                ╭──────╮
+ *   stream ─¹─▶ do_stream ──▶ set_data_callback ─┤ lock ├─╮
+ *                                                ╰──────╯ │
+ *     ╭───────────────────────────────────────────────────╯
+ *     │
+ *     ╰─┬─▶ set_data_callback_assigned
+ *       │
+ *       ╰─▶ process_data ─▶ ···
+ *
+ *   ¹ various forwardings depending on parameter types
+ *
+ * process_data:
+ *
+ *   ╭──────╮
+ *   │ lock ├─▶ ··· ──▶ process_data ──▶ take_data? ─────▶ set_buffer_is_empty
+ *   ╰──────╯                             ╷         false
+ *                                        │ true
+ *                                        ▼
+ *                                call_data_callback
+ *                                        ╷
+ *                                        │
+ *                                        ▼
+ *                          set_consumer_is_running(true) ──▶ update_state
+ *                                        ╷
+ *                                        │
+ *                                        ▼
+ *   (scope barrier)               ╭──(consumer)──╮
+ *                        resolved │              │ rejected
+ *                                ╭┴──────────────┴╮
+ *                                │ reacquire lock │
+ *                                │    if async    │
+ *                                ╰┬──────────────┬╯
+ *                                 │              │
+ *                                 ▼              ▼
+ *                            set_action      do_reject ──▶ ··· ──▶ update_state
+ *                                 ╷              ╷
+ *                                 │              │
+ *                                 ▼              ▼
+ *                          set_consumer_is_running(false) ──▶ update_state
+ *                                 ╷
+ *                                 │
+ *                                 ▼
+ *                            process_data
+ *                                 ╷
+ *                                 │
+ *                                 ▼
+ *                                ···
+ */
+
+/*
+ * Promise stream states:
+ *
+ *    ┌───────────┬──────────┬──────────┬──────────┬──────────┬────────────┐
+ *    │  Name of  │   Data   │ Data in  │ Consume  │   Have   │  Promise   │
+ *    │   state   │ written  │  buffer  │ running  │  result  │ completed  │
+ *    ├———————————┼——————————┼——————————┼——————————┼——————————┼————————————┤
+ *  A │pending    │ no       │ (no)     │ (no)     │ no       │ (no)       │
+ *  B │streaming1 │ yes      │ *        │ *        │ no       │ (no)       │
+ *  C │streaming2 │ yes      │ yes      │ *        │ yes      │ (no)       │
+ *  D │streaming3 │ yes      │ no       │ yes      │ yes      │ (no)       │
+ *  E │completed  │ *        │ no       │ no       │ (yes)    │ completing │
+ *    └───────────┴──────────┴──────────┴──────────┴──────────┴────────────┘
+ *
+ *       * = don't care (any value)
+ *   (val) = value is implicit, enforced due to value of some other field
+ *
+ * State transition graph:
+ *
+ *   A ──┬──▶ B ──▶ C ──▶ D ──┬──▶ E
+ *       │                    │
+ *       └──────────▶─────────┘
+ *
+ * State descriptions/conditions:
+ *
+ *   A: pending
+ *     initial state, nothing done
+ *
+ *   B: streaming1
+ *     data written, stream has no result (not been resolved/rejected)
+ *     A→B: write (& no result)
+ *
+ *   C: streaming2
+ *     data written, stream has result, buffer contains data to be consumed
+ *     B→C: result (& written)
+ *
+ *   D: streaming3
+ *     data written, stream has result, buffer is empty, consumer is running
+ *     C→D: buffer empty (& result & written)
+ *
+ *   E: completed:
+ *     stream has result, buffer is empty, consumer is not running
+ *     ∴ promise can be completed
+ *     A→E: result (& not written)
+ *     D→E: consumer not running (& buffer empty & result & written)
+ *
+ */
+
 class PromiseStreamStateBase : public self_managing {
 public:
 	/* Default constructor */
@@ -44,55 +160,11 @@ protected:
 	/* Data action (set by consumer, read by producer) */
 	void set_action(ensure_locked, StreamAction);
 	StreamAction get_action(ensure_locked) const;
-	/* Called when on_data callback has been assigned */
-	void set_data_callback_assigned(ensure_locked);
 	/*
-	 * Promise stream states:
-	 *
-	 *    ┌───────────┬──────────┬──────────┬──────────┬──────────┬────────────┐
-	 *    │  Name of  │   Data   │ Data in  │ Consume  │   Have   │  Promise   │
-	 *    │   state   │ written  │  buffer  │ running  │  result  │ completed  │
-	 *    ├———————————┼——————————┼——————————┼——————————┼——————————┼————————————┤
-	 *  A │pending    │ no       │ (no)     │ (no)     │ no       │ (no)       │
-	 *  B │streaming1 │ yes      │ *        │ *        │ no       │ (no)       │
-	 *  C │streaming2 │ yes      │ yes      │ *        │ yes      │ (no)       │
-	 *  D │streaming3 │ yes      │ no       │ yes      │ yes      │ (no)       │
-	 *  E │completed  │ *        │ no       │ no       │ (yes)    │ completing │
-	 *    └───────────┴──────────┴──────────┴──────────┴──────────┴────────────┘
-	 *
-	 *       * = don't care (any value)
-	 *   (val) = value is implicit, enforced due to value of some other field
-	 *
-	 * State transition graph:
-	 *
-	 *   A ──┬──▶ B ──▶ C ──▶ D ──┬──▶ E
-	 *       │                    │
-	 *       └──────────▶─────────┘
-	 *
-	 * State descriptions/conditions:
-	 *
-	 *   A: pending
-	 *     initial state, nothing done
-	 *
-	 *   B: streaming1
-	 *     data written, stream has no result (not been resolved/rejected)
-	 *     A→B: write (& no result)
-	 *
-	 *   C: streaming2
-	 *     data written, stream has result, buffer contains data to be consumed
-	 *     B→C: result (& written)
-	 *
-	 *   D: streaming3
-	 *     data written, stream has result, buffer is empty, consumer is running
-	 *     C→D: buffer empty (& result & written)
-	 *
-	 *   E: completed:
-	 *     stream has result, buffer is empty, consumer is not running
-	 *     ∴ promise can be completed
-	 *     A→E: result (& not written)
-	 *     D→E: consumer not running (& buffer empty & result & written)
-	 *
+	 * Called when on_data callback has been assigned - will make the object
+	 * immortal
 	 */
+	void set_data_callback_assigned(ensure_locked);
 	/* Get the state */
 	enum class stream_state { pending, streaming1, streaming2, streaming3, completed };
 	stream_state get_state(ensure_locked) const;
@@ -245,7 +317,7 @@ protected:
 	/* Is data queued? */
 	bool has_data(ensure_locked) const;
 	/* Call the on_data callback */
-	virtual void call_data_callback(Datum);
+	virtual void call_data_callback(ensure_locked, Datum);
 	/* Bind resolve/reject dispatchers */
 	using completer_func = typename PromiseStreamStateBase::completer_func;
 	virtual completer_func resolve_completer(Result);
@@ -263,7 +335,7 @@ private:
 	Promise<pair<State, Result>> do_stateful_stream(
 		stateful_stream_consumer<State> consumer,
 		Args&&... args);
-	using DataFunc = function<Promise<StreamAction>(Datum)>;
+	using DataFunc = function<Promise<StreamAction>(ensure_locked, Datum)>;
 	/* Buffer */
 	queue<Datum> buffer{};
 	template <typename... Args>
@@ -272,7 +344,9 @@ private:
 	DataFunc on_data{nullptr};
 	void set_data_callback(DataFunc);
 	/* Call consumer */
-	void process_data();
+	void process_data(ensure_locked);
+	/* If data is available, moves data into <out> */
+	bool take_data(ensure_locked, Datum& out);
 	/* Capture value and set resolve/reject completer */
 	void do_resolve(ensure_locked, Result);
 	void do_reject(ensure_locked, exception_ptr, bool consumer_failed);

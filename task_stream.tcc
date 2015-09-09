@@ -74,24 +74,8 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 		(EventLoop& loop, Args&&... args)
 	{
 		PromiseStream<Result, Datum> stream;
-		auto resolve = [stream, reaction_pool, &loop] (Result result) -> void
-		{
-			auto proxy = [stream, result = move(result)]
-				(EventLoop&) mutable -> void
-			{
-				stream->resolve(move(result));
-			};
-			loop.push(reaction_pool, detail::make_shared_functor(proxy));
-		};
-		auto reject = [stream, reaction_pool, &loop] (exception_ptr error) -> void
-		{
-			auto proxy = [stream, error] (EventLoop&) -> void
-			{
-				stream->reject(error);
-			};
-			loop.push(reaction_pool, proxy);
-		};
-		auto consumer = [stream, consumer_pool, &loop, resolve, reject]
+		/* Consumer */
+		auto consumer = [stream, consumer_pool, &loop]
 			(Datum datum) -> Promise<StreamAction>
 		{
 			Promise<StreamAction> consumer_action;
@@ -109,14 +93,33 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 			loop.push(consumer_pool, detail::make_shared_functor(proxy));
 			return consumer_action;
 		};
+		/* Producer */
 		auto producer = [stream, producer_pool, &loop,
-			factory, args..., consumer, resolve, reject]
+			factory, args..., consumer, reaction_pool]
 			(EventLoop&) mutable -> void
 		{
+			auto resolve = [stream, reaction_pool, &loop] (Result result) -> void
+			{
+				auto proxy = [stream, result = move(result)]
+					(EventLoop&) mutable -> void
+				{
+					stream->resolve(move(result));
+				};
+				loop.push(reaction_pool, detail::make_shared_functor(proxy));
+			};
+			auto reject = [stream, reaction_pool, &loop] (exception_ptr error) -> void
+			{
+				auto proxy = [stream, error] (EventLoop&) -> void
+				{
+					stream->reject(error);
+				};
+				loop.push(reaction_pool, proxy);
+			};
 			factory(forward<Args>(args)...)
 				->stream(consumer)
 				->then(resolve, reject);
 		};
+		/* Push production task */
 		loop.push(producer_pool, detail::make_shared_functor(producer));
 		return stream;
 	};

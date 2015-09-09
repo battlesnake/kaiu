@@ -86,7 +86,6 @@ void PromiseStreamStateBase::update_state(ensure_locked lock)
 			decltype(completer) callback{nullptr};
 			swap(callback, completer);
 			callback(lock);
-			/* May cause destruction of this object */
 			make_mortal(lock);
 		}
 		break;
@@ -174,14 +173,17 @@ void PromiseStreamStateBase::set_data_callback_assigned(ensure_locked lock)
 	}
 #endif
 	data_callback_assigned = true;
-	make_immortal(lock);
+	if (get_state(lock) != stream_state::completed) {
+		make_immortal(lock);
+	}
 }
 
 /* Public functions */
 
 bool PromiseStreamStateBase::is_stopping() const
 {
-	return data_action() == StreamAction::Stop;
+	auto lock = get_lock();
+	return get_action(lock) == StreamAction::Stop;
 }
 
 StreamAction PromiseStreamStateBase::data_action() const

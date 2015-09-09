@@ -17,25 +17,15 @@ using namespace kaiu;
 
 Assertions assert({
 	{ nullptr, "Concurrency" },
-	{ "SYNCHRO", "Deadlock test" },
 	{ "RSYNCHRO", "Random deadlock test" }
 });
-
-void synchronization_test()
-{
-	/*
-	 * TODO: All possible orders that PromiseStream events/transitions can
-	 * occur in, then loop it 10000 times to be more certain.
-	 */
-	assert.skip("SYNCHRO");
-}
 
 void random_synchronization_test()
 {
 	const long count = 50000;
 	printf("Attempting to trigger deadlock:\n");
 	printf(" * If counter freezes, test has failed\n");
-	printf(" * Tests n<1000 do not log state chars\n\n");
+	printf(" * Tests where thousands column is odd do not log state chars\n\n");
 	/* Logging state */
 	static constexpr int len = 8;
 	class state_t {
@@ -53,7 +43,7 @@ void random_synchronization_test()
 	};
 	atomic<bool> failed{false};
 	for (int i = 1; i <= count && !failed; i++) {
-		const bool log_state = i > 1000;
+		const bool log_state = (i / 1000 & 1) != 1;
 		const long nmax = (i % 2) ? 1000 : 1;
 		const long expect = (nmax * nmax + nmax) / 2;
 		ParallelEventLoop loop{ {
@@ -67,6 +57,9 @@ void random_synchronization_test()
 		state_t state(log_state);
 		printf("\r  Run %d of %ld... ", i, count);
 		state.print();
+		if (!log_state) {
+			fflush(stdout);
+		}
 		/* Mimic async read from some remote source */
 		auto get_remote_data = [&producer_mx, &loop, nmax, expect, &state] () -> PromiseStream<long, long> {
 			PromiseStream<long, long> stream;
@@ -182,8 +175,7 @@ void random_synchronization_test()
 
 void concurrency_test()
 {
-	synchronization_test();
-	//random_synchronization_test();
+	random_synchronization_test();
 	assert.skip("RSYNCHRO");
 }
 

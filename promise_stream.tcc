@@ -1,6 +1,7 @@
 #define promise_stream_tcc
 #include <exception>
 #include <stdexcept>
+#include <thread>
 #include "shared_functor.h"
 #include "promise_stream.h"
 
@@ -37,53 +38,36 @@ template <typename Result, typename Datum>
 template <typename... Args>
 void PromiseStreamState<Result, Datum>::write(Args&&... args)
 {
-	{
-		auto lock = get_lock();
-		if (get_action(lock) == StreamAction::Continue) {
-			emplace_data(lock, forward<Args>(args)...);
-			set_stream_has_been_written_to(lock);
-		}
+	auto lock = get_lock();
+	if (get_action(lock) == StreamAction::Continue) {
+		emplace_data(lock, forward<Args>(args)...);
+		set_stream_has_been_written_to(lock);
 	}
-	process_data();
-}
-
-template <typename Result, typename Datum>
-template <typename... Args>
-void PromiseStreamState<Result, Datum>::emplace_data(ensure_locked, Args&&... args)
-{
-	buffer.emplace(forward<Args>(args)...);
-}
-
-template <typename Result, typename Datum>
-bool PromiseStreamState<Result, Datum>::has_data(ensure_locked) const
-{
-	return buffer.size() > 0;
+	process_data(lock);
 }
 
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::set_data_callback(DataFunc data_callback)
 {
-	{
-		auto lock = get_lock();
+	auto lock = get_lock();
 #if defined(SAFE_PROMISE_STREAMS)
-		if (on_data != nullptr) {
-			throw logic_error("Callbacks are already assigned");
-		}
-		if (data_callback == nullptr) {
-			throw logic_error("Attempted to bind null callback");
-		}
-#endif
-		on_data = data_callback;
-		set_data_callback_assigned(lock);
+	if (on_data != nullptr) {
+		throw logic_error("Callbacks are already assigned");
 	}
-	process_data();
+	if (data_callback == nullptr) {
+		throw logic_error("Attempted to bind null callback");
+	}
+#endif
+	on_data = data_callback;
+	set_data_callback_assigned(lock);
+	process_data(lock);
 }
 
 template <typename Result, typename Datum>
 Promise<Result> PromiseStreamState<Result, Datum>::
 	do_stream(stream_consumer consumer)
 {
-	auto data = [consumer] (Datum datum) {
+	auto data = [consumer] (ensure_locked, Datum datum) {
 		try {
 			return consumer(move(datum));
 		} catch (...) {
@@ -151,83 +135,142 @@ void PromiseStreamState<Result, Datum>::forward_to(Promise<Result> next)
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::process_data()
+void PromiseStreamState<Result, Datum>::call_data_callback(ensure_locked lock, Datum datum) try {
+	/*
+	 * Asynchronous on_data callbacks will obviously not trigger the catch block
+	 * if they throw.  Synchronous on_data callbacks also will not, as the
+	 * promise's "handler" eats the exception.
+	 *
+	 * The callback passed via stream(...) methods is wrapped in a try/catch
+	 * block so in theory, the catch block in this function should never be
+	 * triggered by exceptions from user code, with the possible exception of
+	 * the move constructor for type Datum.
+	 */
+	/* Set that consumer is running */
+	set_consumer_is_running(lock, true);
+	/*
+	 * We need to be able to detect whether the callbacks are run synchronously
+	 * or not.  If run asynchronously, they could be in the same thread as the
+	 * caller, or a different one.  Hence we need to combine two variables:
+	 *  * "current thread id"
+	 *  * the async_check boolean
+	 *
+	 * async_check detects asynchronous calling when the callbacks run in the
+	 * calling thread, but may not always work if the callbacks are called in
+	 * another thread.  "current thread id" fixes that case.
+	 */
+	auto async_check = make_shared<atomic<bool>>(false);
+	const auto caller_id = this_thread::get_id();
+	const auto is_async = [=] {
+		return *async_check || this_thread::get_id() != caller_id;
+	};
+	using lock_type = typename std::decay<decltype(lock)>::type;
+	/* Run consumer */
+	on_data(lock, move_if_noexcept(datum))
+		->then(
+			[this, is_async, lck=&lock] (const StreamAction action) {
+				/* Get lock if we're running asynchronously */
+				const bool async = is_async();
+				lock_type new_lock;
+				if (async) {
+					new_lock = get_lock();
+				}
+				lock_type& lock = async ? new_lock : *lck;
+				/* Lock acquired */
+				set_action(lock, action);
+				set_consumer_is_running(lock, false);
+				/* Will release the lock */
+				process_data(lock);
+			},
+			[this, is_async, lck=&lock] (exception_ptr error) {
+				/* Get lock if we're running asynchronously */
+				const bool async = is_async();
+				lock_type new_lock;
+				if (async) {
+					new_lock = get_lock();
+				}
+				lock_type& lock = async ? new_lock : *lck;
+				/* Lock acquired */
+				do_reject(lock, error, true);
+				set_consumer_is_running(lock, false);
+			});
+	*async_check = true;
+} catch (...) {
+	set_consumer_is_running(lock, false);
+	/* Rethrowing is implicit since this is a function-try-catch block */
+	throw;
+}
+
+template <typename Result, typename Datum>
+void PromiseStreamState<Result, Datum>::process_data(ensure_locked lock)
 {
 	Datum datum;
-	{
-		auto lock = get_lock();
-		auto state = get_state(lock);
-		/* Wrong state */
-		if (state != stream_state::streaming1 && state != stream_state::streaming2) {
-			return;
-		}
-		/* No consumer assigned yet */
-		if (on_data == nullptr) {
-			return;
-		}
-		/* Don't run the consumer multiple time simultaneously */
-		if (get_consumer_is_running(lock)) {
-			return;
-		}
-		if (get_action(lock) != StreamAction::Continue) {
-			decltype(buffer)().swap(buffer);
-		}
-		if (buffer.empty()) {
-			/*
-			 * When removing the last data from the buffer, this call must occur
-			 * AFTER set_consumer_is_running(lock, true).  Since we do not call
-			 * set_buffer_is_empty on removing the last data from the buffer,
-			 * but instead we call it after the last data has been processed,
-			 * this is not a problem for us.
-			 */
-			set_buffer_is_empty(lock);
-			return;
-		}
-		datum = move(buffer.front());
-		buffer.pop();
-		/*
-		 * call_data_callback MUST set this to false after the consumer has run
-		 * or if it fails to start
-		 */
-		set_consumer_is_running(lock, true);
+	if (!take_data(lock, datum)) {
+		return;
 	}
 	/*
 	 * Thread-safe, as we (within the previous lock) check whether on_data has
 	 * been assigned yet, and it can not be re-assigned once set.  We also check
 	 * and set consumer_running, so the data callback can not be called
 	 * concurrently.
+	 *
+	 * Will release the lock.
 	 */
-	call_data_callback(move(datum));
+	call_data_callback(lock, move(datum));
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::call_data_callback(Datum datum) try {
-	/* Assumes consumer_running has been set to true and mutex is not locked */
+bool PromiseStreamState<Result, Datum>::take_data(ensure_locked lock, Datum& out)
+{
+	auto state = get_state(lock);
+	/* Wrong state */
+	if (state != stream_state::streaming1 && state != stream_state::streaming2) {
+		return false;
+	}
+	/* No consumer assigned yet */
+	if (on_data == nullptr) {
+		return false;
+	}
+	/* Don't run the consumer multiple time simultaneously */
+	if (get_consumer_is_running(lock)) {
+		return false;
+	}
 	/*
-	 * Asynchronous on_data callbacks will obviously not trigger the catch block
-	 * if they throw.  Synchronous on_data callbacks also will not, as the
-	 * promise's "handler" eats the exception.
+	 * If consumer has finished, empty the buffer (and ignore subsequent
+	 * writes, see "write" method)
 	 */
-	on_data(move(datum))
-		->then(
-			[this] (const StreamAction action) {
-				{
-					auto lock = get_lock();
-					set_action(lock, action);
-					set_consumer_is_running(lock, false);
-				}
-				process_data();
-			},
-			[this] (exception_ptr error) {
-				auto lock = get_lock();
-				do_reject(lock, error, true);
-				set_consumer_is_running(lock, false);
-			});
-} catch (...) {
-	auto lock = get_lock();
-	set_consumer_is_running(lock, false);
-	/* Rethrowing is implicit since this is a function-try-catch block */
-	throw;
+	if (get_action(lock) != StreamAction::Continue) {
+		decltype(buffer)().swap(buffer);
+	}
+	if (buffer.empty()) {
+		/*
+		 * When removing the last data from the buffer, this call must occur
+		 * AFTER set_consumer_is_running(lock, true) in order for state
+		 * transitions to work correctly.  Since we do not call
+		 * set_buffer_is_empty on removing the last data from the buffer,
+		 * but instead we call it after the last data has been processed,
+		 * this is not a problem for us.
+		 */
+		set_buffer_is_empty(lock);
+		return false;
+	}
+	out = move(buffer.front());
+	buffer.pop();
+	/* Return success */
+	return true;
+}
+
+template <typename Result, typename Datum>
+template <typename... Args>
+void PromiseStreamState<Result, Datum>::emplace_data(ensure_locked, Args&&... args)
+{
+	buffer.emplace(forward<Args>(args)...);
+}
+
+template <typename Result, typename Datum>
+bool PromiseStreamState<Result, Datum>::has_data(ensure_locked) const
+{
+	return buffer.size() > 0;
 }
 
 template <typename Result, typename Datum>
