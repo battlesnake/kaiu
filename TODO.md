@@ -7,4 +7,5 @@ TODO
 
  * Write a coding standard, and make the code fit it (currently very inconsistent).
 
- * Stream operator >> : eg `params >>= stream_factory >> data_func >>= completion_func/error_handler`
+ * Parallel promise stream, i.e. one which can run the consumer multiple times
+   concurrently.

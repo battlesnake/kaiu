@@ -20,6 +20,10 @@ The header files are commented.  Some components have their own README:
 
  * (Task)[https://github.com/battlesnake/kaiu/blob/master/task.md]
 
+ * (Promise stream)[https://github.com/battlesnake/kaiu/blob/master/promise_stream.md]
+
+ * (Task stream)[https://github.com/battlesnake/kaiu/blob/master/task_stream.md]
+
  * (Assertion)[https://github.com/battlesnake/kaiu/blob/master/assertion.md]
 
  * (Tuple iteration)[https://github.com/battlesnake/kaiu/blob/master/tuple_iteration.md]

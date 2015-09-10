@@ -205,18 +205,9 @@ template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::process_data(ensure_locked lock)
 {
 	Datum datum;
-	if (!take_data(lock, datum)) {
-		return;
+	if (take_data(lock, datum)) {
+		call_data_callback(lock, move(datum));
 	}
-	/*
-	 * Thread-safe, as we (within the previous lock) check whether on_data has
-	 * been assigned yet, and it can not be re-assigned once set.  We also check
-	 * and set consumer_running, so the data callback can not be called
-	 * concurrently.
-	 *
-	 * Will release the lock.
-	 */
-	call_data_callback(lock, move(datum));
 }
 
 template <typename Result, typename Datum>
