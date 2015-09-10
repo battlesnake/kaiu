@@ -101,13 +101,14 @@ class PromiseStreamState : public PromiseStreamStateBase {
 	template <
 		typename Consumer,
 		template <typename, typename> class Test,
+		typename Expect,
 		typename ResultType,
 		typename... Args>
 	using stream_sel =
 		typename enable_if<
 			Test<
 				typename result_of<Consumer(Args&&...)>::type,
-				StreamAction
+				Expect
 			>::value,
 			Promise<ResultType>
 		>::type;
@@ -134,19 +135,27 @@ public:
 	Promise<Result> stop();
 	/* Stateless consumer returning promise */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_promise_is, Result, Datum>
+	stream_sel<Consumer, result_of_promise_is, StreamAction, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateless consumer returning action */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_not_promise_is, Result, Datum>
+	stream_sel<Consumer, result_of_not_promise_is, StreamAction, Result, Datum>
+		stream(Consumer consumer);
+	/* Stateless consumer returning void */
+	template <typename = void, typename Consumer>
+	stream_sel<Consumer, result_of_not_promise_is, void, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateful consumer returning promise */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum>
+	stream_sel<Consumer, result_of_promise_is, StreamAction, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 	/* Stateful consumer returning action */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum>
+	stream_sel<Consumer, result_of_not_promise_is, StreamAction, pair<State, Result>, State&, Datum>
+		stream(Consumer consumer, Args&&... args);
+	/* Stateful consumer returning void */
+	template <typename State, typename Consumer, typename... Args>
+	stream_sel<Consumer, result_of_not_promise_is, void, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 protected:
 	/* Is data queued? */
@@ -227,6 +236,42 @@ namespace promise {
 
 template <typename Result, typename Datum, typename... Args>
 using StreamFactory = function<PromiseStream<Result, Datum>(Args...)>;
+
+template <typename Datum>
+using StatelessConsumer = function<Promise<StreamAction>(Datum)>;
+
+template <typename State, typename Datum>
+using StatefulConsumer = function<Promise<StreamAction>(State&, Datum)>;
+
+namespace monads {
+
+/* Bind stream factories to create promise factories */
+
+template <typename Result, typename State, typename Datum, typename... Args>
+auto operator >= (StreamFactory<Result, Datum, Args...> l,
+	StatefulConsumer<State, Result> r)
+{
+	promise::Factory<pair<State, Result>, Args...> factory =
+		[l, r] (Args&&... args) -> Promise<pair<State, Result>> {
+			return l(forward<Args>(args)...)
+				->template stream<State>(r);
+		};
+	return factory;
+}
+
+template <typename Result, typename Datum, typename Functor, typename... Args,
+	typename = typename result_of<Functor(Datum)>::type>
+auto operator >= (StreamFactory<Result, Datum, Args...> l, Functor r)
+{
+	promise::Factory<Result, Args...> factory =
+		[l, r] (Args&&... args) -> Promise<Result> {
+			return l(forward<Args>(args)...)
+				->template stream<void>(r);
+		};
+	return factory;
+}
+
+}
 
 }
 

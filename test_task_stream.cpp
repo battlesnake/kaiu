@@ -8,6 +8,7 @@
 #include "assertion.h"
 #include "promise.h"
 #include "promise_stream.h"
+#include "task.h"
 #include "task_stream.h"
 
 using namespace std;
@@ -18,7 +19,10 @@ using namespace kaiu;
 Assertions assert({
 	{ nullptr, "Concurrency" },
 	{ "SYNCHRO", "Structured deadlock test" },
-	{ "RSYNCHRO", "Random deadlock test" }
+	{ "RSYNCHRO", "Random deadlock test" },
+	{ nullptr, "Monads" },
+	{ "MONAD", "Stateless" },
+	{ "MONADS", "Stateful" }
 });
 
 class Trigger {
@@ -210,7 +214,7 @@ void synchronization_test()
 
 void random_synchronization_test()
 {
-	const long count = 50000;
+	const long count = 100000;
 	printf("Attempting to trigger deadlock:\n");
 	printf(" * If counter freezes, test has failed\n");
 	printf(" * Tests where thousands column is odd do not provide state info\n\n");
@@ -360,12 +364,74 @@ void concurrency_test()
 {
 	synchronization_test();
 	//random_synchronization_test();
-	assert.skip("RSYNCHRO");
+	assert.skip("RSYNCHRO", "Takes a really long time");
+}
+
+void operator_test()
+{
+	using namespace kaiu::promise::monads;
+	using kaiu::promise::Factory;
+	using kaiu::promise::StreamFactory;
+	using kaiu::promise::StatefulConsumer;
+	bool done;
+	Factory<int, int> unit = [] (int value) {
+		return promise::resolved(value);
+	};
+	StreamFactory<int, int, int> producer = [] (int result) {
+		PromiseStream<int, int> stream;
+		stream->write(42);
+		stream->resolve(result);
+		return stream;
+	};
+	{
+		auto consumer = [] (int result) {
+			return promise::resolved(StreamAction::Continue);
+		};
+		auto complete = [&] (int result) {
+			if (result != 1) {
+				assert.fail("MONAD", "Wrong result");
+			}
+			done = true;
+		};
+		auto failed = [] (exception_ptr) {
+			assert.fail("MONAD", "Exception thrown");
+		};
+		auto chain = unit >>= producer >= consumer;
+		done = false;
+		chain(1)->then(complete, failed);
+		if (done) {
+			assert.try_pass("MONAD");
+		}
+	}
+	{
+		StatefulConsumer<int, int> consumer = [] (int& state, int result) {
+			state = 2;
+			return promise::resolved(StreamAction::Continue);
+		};
+		auto complete = [&] (pair<int, int> res) {
+			auto& state = res.first;
+			auto& result = res.second;
+			if (result != 1 || state != 2) {
+				assert.fail("MONADS", "Wrong result");
+			}
+			done = true;
+		};
+		auto failed = [] (exception_ptr) {
+			assert.fail("MONADS", "Exception thrown");
+		};
+		auto chain = unit >>= producer >= consumer;
+		done = false;
+		chain(1)->then(complete, failed);
+		if (done) {
+			assert.try_pass("MONADS");
+		}
+	}
 }
 
 int main(int argc, char *argv[])
 try {
 	concurrency_test();
+	operator_test();
 	return assert.print(argc, argv);
 } catch (...) {
 	assert.print_error();

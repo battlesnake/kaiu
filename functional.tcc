@@ -44,7 +44,6 @@ CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 		::apply (ExtraArgs&&... extra_args) const
 {
-	/* See body of operator() for why we aren't using enable_of */
 	constexpr auto NumArgs = sizeof...(CurriedArgs) + sizeof...(ExtraArgs);
 	static_assert(NumArgs <= Arity,
 		"Cannot curry function: too many arguments specified");
@@ -109,14 +108,6 @@ template <size_t NumArgs>
 void CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 	::statically_check_args_count_for_invoke() const
 {
-	/*
-	 * Fail with static_assert instead of enable_if, this way we get a useful
-	 * error message instead of pages of template soup
-	 *
-	 * We can use static_assert instead of enable_if since:
-	 *  a) we're not overloading the function operator anymore.
-	 *  b) this is a template function so will only be instantiated if called.
-	 */
 	static_assert(NumArgs >= Arity, "Cannot invoke curried function, not enough arguments curried/passed to it at time of invocation");
 	static_assert(NumArgs <= Arity, "Cannot invoke curried function, too many arguments curried/passed to it at time of invocation");
 }
@@ -137,41 +128,11 @@ bool CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 
 } /* end namespace detail */
 
-/*** Curry */
-
-template <typename Result, typename... Args, typename... CurriedArgs>
-Curried<Result, sizeof...(Args), function<Result(Args...)>, CurriedArgs...>
-	Curry(function<Result(Args...)> func, CurriedArgs... curried_args)
-{
-	return Curry<Result, sizeof...(Args), function<Result(Args...)>, CurriedArgs...>(func, curried_args...);
-}
-
-template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
-Curried<Result, Arity, Functor, CurriedArgs...>
-	Curry(Functor func, CurriedArgs... curried_args)
-{
-	return detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>(func, forward_as_tuple(curried_args...));
-}
-
 template <typename Result, typename Functor, typename Args>
-Result Invoke(Functor func, Args args)
+Result invoke(Functor func, Args args)
 {
 	return detail::invoke_with_tuple<Result, Functor, Args>
 		(func, forward<Args>(args));
 }
-
-#ifdef enable_monads
-template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
-	is_curried_function<DTo>::value &&
-	DTo::arity == 1,
-		typename DTo::result_type>::type
-	operator ,(From&& from, To to)
-{
-	return to(forward<From>(from));
-}
-#endif
 
 }

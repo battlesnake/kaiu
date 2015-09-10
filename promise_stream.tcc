@@ -300,7 +300,7 @@ auto PromiseStreamState<Result, Datum>::reject_completer(exception_ptr error)
 template <typename Result, typename Datum>
 template <typename, typename Consumer>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
-	-> stream_sel<Consumer, result_of_promise_is, Result, Datum>
+	-> stream_sel<Consumer, result_of_promise_is, StreamAction, Result, Datum>
 {
 	return do_stream(consumer);
 }
@@ -309,10 +309,23 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 template <typename Result, typename Datum>
 template <typename, typename Consumer>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
-	-> stream_sel<Consumer, result_of_not_promise_is, Result, Datum>
+	-> stream_sel<Consumer, result_of_not_promise_is, StreamAction, Result, Datum>
 {
 	auto data_proxy = [consumer] (Datum datum) {
 		return promise::resolved<StreamAction>(consumer(move(datum)));
+	};
+	return do_stream(data_proxy);
+}
+
+/* Stateless consumer returning void */
+template <typename Result, typename Datum>
+template <typename, typename Consumer>
+auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
+	-> stream_sel<Consumer, result_of_not_promise_is, void, Result, Datum>
+{
+	auto data_proxy = [consumer] (Datum datum) {
+		consumer(move(datum));
+		return promise::resolved(StreamAction::Continue);
 	};
 	return do_stream(data_proxy);
 }
@@ -321,7 +334,7 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum>
+	-> stream_sel<Consumer, result_of_promise_is, StreamAction, pair<State, Result>, State&, Datum>
 {
 	return do_stateful_stream<State, Args...>(consumer, forward<Args>(args)...);
 }
@@ -330,10 +343,23 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum>
+	-> stream_sel<Consumer, result_of_not_promise_is, StreamAction, pair<State, Result>, State&, Datum>
 {
 	auto data_proxy = [consumer] (State& state, Datum datum) {
 		return promise::resolved<StreamAction>(consumer(state, move(datum)));
+	};
+	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
+}
+
+/* Stateful consumer returning void */
+template <typename Result, typename Datum>
+template <typename State, typename Consumer, typename... Args>
+auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
+	-> stream_sel<Consumer, result_of_not_promise_is, void, pair<State, Result>, State&, Datum>
+{
+	auto data_proxy = [consumer] (State& state, Datum datum) {
+		consumer(state, move(datum));
+		return promise::resolved(StreamAction::Continue);
 	};
 	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
 }

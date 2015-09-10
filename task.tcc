@@ -17,7 +17,7 @@ UnboundTask<Result, Args...> task(
 		Promise<Result> promise;
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
-			auto resolve = [promise, reaction_pool, &loop] (Result& result) {
+			auto resolve = [promise, reaction_pool, &loop] (Result result) {
 				auto proxy = [promise, result = move(result)] (EventLoop&) mutable {
 					promise->resolve(move(result));
 				};
@@ -35,43 +35,9 @@ UnboundTask<Result, Args...> task(
 		loop.push(action_pool, action);
 		return promise;
 	};
-	return Curry<Promise<Result>, sizeof...(Args) + 1, Factory<Result, EventLoop&, Args...>>(newFactory);
+	return curry_wrap<Promise<Result>, sizeof...(Args) + 1, Factory<Result, EventLoop&, Args...>>(newFactory);
 }
 
 }
-
-#ifdef enable_task_monads
-/*** Task monad operators ***/
-
-template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
-	is_curried_function<DFrom>::value &&
-	is_curried_function<DTo>::value &&
-	DFrom::arity == 0 &&
-	DTo::arity == 1 &&
-	is_promise<typename DFrom::result_type>::value &&
-	is_promise<typename DTo::result_type>::value,
-		typename DFrom::result_type>::type
-operator | (From&& l, To&& r)
-{
-	return l()->then(forward<To>(r));
-}
-
-template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
-	is_promise<DFrom>::value &&
-	is_curried_function<DTo>::value &&
-	DTo::arity == 1 &&
-	is_promise<typename DTo::result_type>::value,
-		typename DTo::result_type>::type
-operator | (From&& l, To&& r)
-{
-	return l->then(forward<To>(r));
-}
-#endif
 
 }
