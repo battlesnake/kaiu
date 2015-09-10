@@ -123,7 +123,7 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 		loop.push(producer_pool, detail::make_shared_functor(producer));
 		return stream;
 	};
-	return Curry<PromiseStream<Result, Datum>, sizeof...(Args) + 1, StreamFactory<Result, Datum, EventLoop&, Args...>>(newFactory);
+	return curry_wrap<PromiseStream<Result, Datum>, sizeof...(Args) + 1, StreamFactory<Result, Datum, EventLoop&, Args...>>(newFactory);
 }
 
 template <typename Result, typename Datum, typename... Args>

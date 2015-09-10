@@ -26,11 +26,10 @@ Result invoke_shuffle_args(Functor func, index_sequence<Indices...> indices, Arg
 /*
  * CurriedFunction<Result, Arity, Functor, CurriedArgs...>(func, [args...])
  *
- * Wraps a function and optionally binds arguments to it.
- *
- * The function operator can be used to specify remaining arguments, returning
- * either another CurriedFunction (if not all arguments are bound) or the result
- * of the invoked function if all arguments are bound.
+ * Wraps a function.  Enables currying and partial application.  Currying is
+ * done by value via the "<<" operator, and partial application is done by
+ * reference (when possible) via the "apply" method.  The functor can be invoked
+ * via the "invoke" method or the "()" operator.
  */
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
@@ -40,17 +39,19 @@ private:
 public:
 	static const auto is_curried_function = true;
 	using result_type = Result;
+	using functor_type = Functor;
 	static constexpr auto arity = Arity - sizeof...(CurriedArgs);
 	CurriedFunction(Functor func);
 	CurriedFunction(Functor func, const ArgsTuple& curried_args);
 	/*
-	 * Function operator ALWAYS invokes, to curry use the "apply" method or the
-	 * "<<" operator.  A previous implementation curried using the function
-	 * operator until sufficient arguments were available to invoke, but that
-	 * could lead to difficult debugging scenarios involving 100+line template
-	 * errors, so I separated "apply" and "invoke" into two different syntaxes.
+	 * Function operator ALWAYS invokes, to partially apply use the "apply"
+	 * method or the curry "<<" operator.  A previous implementation permitted
+	 * partial application using the function operator until sufficient
+	 * arguments were available to invoke, but that could lead to difficult
+	 * debugging scenarios involving 100+line template errors, so I separated
+	 * "apply" and "invoke" into two different syntaxes.
 	 *
-	 * With parameters, same as .apply(extra_args).invoke()
+	 * operator ()(args): same as .apply(args).invoke()
 	 */
 	template <typename... ExtraArgs>
 	typename enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
@@ -60,8 +61,7 @@ public:
 	typename enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
 	operator () (ExtraArgs&&... extra_args) const;
 	/*
-	 * Left-shift operator to curry arguments one at a time (only curries, never
-	 * invokes - unlike the function operator which invokes as soon as it can)
+	 * Left-shift operator to curry
 	 *
 	 * Similar as .apply(arg), but captures by VALUE instead of by reference,
 	 * unless std::reference_wrapper is used.
@@ -73,9 +73,9 @@ public:
 	CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename decay<Arg>::type>
 		operator << (Arg&& arg) const;
 	/*
-	 * Returns a new functor, curried with the extra arguments.
-	 * It captures by REFERENCE where possible.  Either use static_cast or use
-	 * operator<< to capture by value.
+	 * Partial application, returns a new functor, with the extra arguments
+	 * bound.  It captures by REFERENCE where possible.  To capture by value,
+	 * either use static_cast, remove_reference, decay, or operator <<.
 	 */
 	template <typename... ExtraArgs>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
@@ -84,8 +84,9 @@ public:
 	template <size_t Arity_ = Arity>
 	typename enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
 	invoke() const;
-	/* Null-pointer comparison */
+	/* Always returns false */
 	bool operator == (nullptr_t) const;
+	/* Always returns true */
 	bool operator != (nullptr_t) const;
 private:
 	template <size_t NumArgs>
@@ -110,23 +111,39 @@ public:
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 using Curried = detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>;
 
-/* Curry std::function with auto parameters */
-template <typename Result, typename... Args, typename... CurriedArgs>
-Curried<Result, sizeof...(Args), function<Result(Args...)>, CurriedArgs...>
-	Curry(function<Result(Args...)> func, CurriedArgs... curried_args);
+/* Curry-wrap std::function */
+template <typename Result, typename... Args>
+const auto curry_wrap(function<Result(Args...)> functor)
+{
+	return Curried<Result, sizeof...(Args), decltype(functor)>(functor);
+}
 
-/* Curry function with Arity parameters */
-template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
-Curried<Result, Arity, Functor, CurriedArgs...>
-	Curry(Functor func, CurriedArgs... curried_args);
+/* Curry-wrap plain function */
+template <typename Result, typename... Args>
+const auto curry_wrap(Result (&functor)(Args...))
+{
+	return Curried<Result, sizeof...(Args), decltype(functor)>(functor);
+}
+
+/* Curry-wrap functor */
+template <typename Result, size_t Arity, typename Functor>
+const auto curry_wrap(Functor functor)
+{
+	return Curried<Result, Arity, Functor>(functor);
+}
 
 /* Call a function using arguments stored in a tuple */
 template <typename Result, typename Functor, typename Args>
-Result Invoke(Functor func, Args args);
+Result invoke(Functor func, Args args);
 
-#if defined(ENABLE_FUNCTIONAL_BIND)
+namespace functional_chain {
+
 /***
  * Bind operator
+ *
+ * This is a horrible idea, added only for fun.  Please DO NOT use it in
+ * production!  Or change the operator to any left-to-right operator that isn't
+ * the comma!
  *
  * Adds operator such that;
  *   "T t , U(T) u" ⇒ "u(t)"
@@ -141,10 +158,6 @@ Result Invoke(Functor func, Args args);
  * You MUST compile with '-Wunused-value', in order to detect when the operator
  * has not been chosen by the compiler (since a no-op default will silently be
  * used in its place, triggering an unused-value warning)
- *
- * This is a horrible idea, added only for fun.  Please DO NOT use it in
- * production!  Or change the operator to any left-to-right operator that isn't
- * the comma!
  */
 template <typename From, typename To,
 	typename DFrom = typename decay<From>::type,
@@ -153,7 +166,10 @@ typename enable_if<
 	is_curried_function<DTo>::value &&
 	DTo::arity == 1,
 		typename DTo::result_type>::type
-	operator ,(From&& from, To to);
+operator ,(From&& from, To to)
+{
+	return to(forward<From>(from));
+}
 
 /* Disable comma operator if we think you've made a mistake */
 template <typename From, typename To,
@@ -163,11 +179,12 @@ typename enable_if<
 	is_curried_function<DTo>::value &&
 	DTo::arity != 1,
 		typename DTo::result_type>::type
-	operator ,(From&& from, To to)
+operator ,(From&& from, To to)
 {
-	static_assert("Functional bind cannot be implemented: Functor has arity != 1");
+	static_assert(DTo::arity == 1, "Functional bind cannot be implemented: Functor has arity != 1");
 }
-#endif
+
+}
 
 }
 

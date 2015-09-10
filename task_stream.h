@@ -1,6 +1,7 @@
 #pragma once
 #include "functional.h"
 #include "event_loop.h"
+#include "task.h"
 #include "promise_stream.h"
 
 namespace kaiu {

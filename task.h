@@ -110,7 +110,8 @@ Promise<Result> dispatch(
 
 }
 
-#ifdef enable_task_monads
+namespace task_monad {
+
 /***
  * Task monad operators
  *
@@ -142,7 +143,10 @@ typename enable_if<
 	is_promise<typename DFrom::result_type>::value &&
 	is_promise<typename DTo::result_type>::value,
 		typename DFrom::result_type>::type
-operator | (From&& l, To&& r);
+operator | (From&& l, To&& r)
+{
+	return l()->then(forward<To>(r));
+}
 
 template <typename From, typename To,
 	typename DFrom = typename decay<From>::type,
@@ -153,8 +157,12 @@ typename enable_if<
 	DTo::arity == 1 &&
 	is_promise<typename DTo::result_type>::value,
 		typename DTo::result_type>::type
-operator | (From&& l, To&& r);
-#endif
+operator | (From&& l, To&& r)
+{
+	return l->then(forward<To>(r));
+}
+
+}
 
 }
 

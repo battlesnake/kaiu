@@ -224,6 +224,8 @@ void calculateOneFactorial()
 		->then(formatResult << cref(start) << x)
 		->then(writeStr)
 		->finish();
+//	using namespace kaiu::task_monad;
+//	promise::combine(partials) | seriesProduct | formatResult << cref(start) << x | writeStr;
 	loop.join(print_error);
 }
 

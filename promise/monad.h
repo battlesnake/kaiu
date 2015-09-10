@@ -64,7 +64,8 @@ const auto operator >>= (const callback_pack<Middle, Domain>& l, const Factory<R
 
 template <typename Range, typename Middle, typename Domain>
 const auto operator >>= (const Factory<Middle, Domain> l, const Factory<Range, Middle> r)
-	{ return callback_pack<Range, Middle>(l).bind(callback_pack<Middle, Domain>(l)); }
+	{ return callback_pack<Middle, Domain>(l)
+		.bind(callback_pack<Range, Middle>(r)); }
 
 }
 

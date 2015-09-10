@@ -1,5 +1,3 @@
-#define enable_monads
-#define enable_task_monads
 #include <iostream>
 #include <functional>
 #include <math.h>
@@ -9,6 +7,7 @@
 
 using namespace std;
 using namespace kaiu;
+using namespace kaiu::functional_chain;
 
 Assertions assert({
 	{ nullptr, "Basic currying" },
@@ -25,7 +24,7 @@ Assertions assert({
 	{ "SHCL", "L-value curried by value" },
 	{ "SHCWL", "Reference-wrapped L-value curried by reference" },
 	{ nullptr, "Modads" },
-	{ "MONADS", "Synchronous monad chain (never use in production)" },
+	{ "MONADS", "Synchronous monad chain (horrible, never use in production)" },
 	{ "MONADA", "Asynchronous cross-thread monad chain" },
 });
 
@@ -73,28 +72,28 @@ ParallelEventLoop loop{ {
 	{ EventLoopPool::calculation, 1 }
 } };
 
-const auto hippo = Curry<int, 2>(hippopotenuse);
-const auto sqr = Curry<int, 1>(sqr__);
-const auto test = Curry<void*, 3>(test__);
+const auto hippo = curry_wrap(hippopotenuse);
+const auto sqr = curry_wrap(sqr__);
+const auto test = curry_wrap(test__);
 
-const auto Hippo = promise::task(promise::factory(hippopotenuse),
+const auto Hippo = promise::dispatchable(hippopotenuse,
 	EventLoopPool::calculation,
 	EventLoopPool::reactor) << ref(loop);
 
-const auto Sqr = promise::task(promise::factory(sqr__),
+const auto Sqr = promise::dispatchable(sqr__,
 	EventLoopPool::calculation,
 	EventLoopPool::reactor) << ref(loop);
 
-const auto Test = promise::task(promise::factory(test__),
+const auto Test = promise::dispatchable(test__,
 	EventLoopPool::reactor,
 	EventLoopPool::reactor) << ref(loop);
 
-const auto LogOutput = promise::task(promise::factory(logOutput),
+const auto LogOutput = promise::dispatchable(logOutput,
 	EventLoopPool::reactor) << ref(loop);
 
 void basic_tests()
 {
-	const auto hippo = Curry<int, 2>(hippopotenuse);
+	const auto hippo = curry_wrap(hippopotenuse);
 	assert.expect(hippo.apply(3, 4)(), 5, "BR");
 	const int x = 3, y = 4;
 	assert.expect(hippo.apply(x, y)(), 5, "BL");
@@ -181,6 +180,8 @@ void cross_thread_currying()
 
 void monad_tests()
 {
+	using namespace kaiu::functional_chain;
+	using namespace kaiu::task_monad;
 	/*** Do not use synchronous monads, they're here for fun only ***/
 	/* Synchronous monad, operator in functional.h */
 	4, sqr, hippo << 63, test << 65 << "MONADS";
