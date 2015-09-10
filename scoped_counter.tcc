@@ -14,35 +14,33 @@ ScopedCounter<Counter>::ScopedCounter(const Counter initial_value) :
 }
 
 template <typename Counter>
-ScopedCounter<Counter>::~ScopedCounter()
-{
-}
-
-template <typename Counter>
 void ScopedCounter<Counter>::adjust(const Delta delta)
 {
 	if (delta == 0) {
 		return;
 	}
-	if ((value += delta) == 0) {
+	lock_guard<mutex> lock(zero_cv_mutex);
+	value += delta;
+	if (value == 0) {
 		notify();
 	}
 }
 
 template <typename Counter>
-void ScopedCounter<Counter>::notify()
+void ScopedCounter<Counter>::notify() const
 {
 	zero_cv.notify_all();
 }
 
 template <typename Counter>
-bool ScopedCounter<Counter>::isZero()
+bool ScopedCounter<Counter>::isZero() const
 {
+	lock_guard<mutex> lock(zero_cv_mutex);
 	return value == 0;
 }
 
 template <typename Counter>
-void ScopedCounter<Counter>::waitForZero()
+void ScopedCounter<Counter>::waitForZero() const
 {
 	unique_lock<mutex> lock(zero_cv_mutex);
 	zero_cv.wait(lock, [this] { return value == 0; });
@@ -72,7 +70,7 @@ ScopedCounter<Counter>::ScopedAdjustment::~ScopedAdjustment()
 
 template <typename Counter>
 ScopedCounter<Counter>::ScopedAdjustment::ScopedAdjustment(ScopedAdjustment&& old) :
-	counter(old.counter), delta(old.delta)
+	counter(old.counter), delta(0)
 {
 	/*
 	 * Don't call main constructor so we don't alter the counter and
@@ -81,7 +79,7 @@ ScopedCounter<Counter>::ScopedAdjustment::ScopedAdjustment(ScopedAdjustment&& ol
 	 * Zero the old instance's delta so it doesn't alter the counter and
 	 * notify_all
 	 */
-	old.delta = 0;
+	swap(delta, old.delta);
 }
 
 }

@@ -115,16 +115,14 @@ public:
 protected:
 	virtual Event next(const EventLoopPool pool) override;
 private:
-	/* Cause all threads to start at the same time */
-	StarterPistol starter_pistol;
 	/* Threads */
 	vector<thread> threads;
 	/* Event queues (one per pool) */
 	unordered_map<EventLoopPool, ConcurrentQueue<Event>, EventLoopPoolHash> queues;
 	/* Exception queue */
 	ConcurrentQueue<exception_ptr> exceptions{true};
-	/* Thread entry point */
-	void do_threaded_loop(const EventLoopPool pool);
+	/* Cause all threads to start at the same time */
+	StarterPistol starter_pistol;
 	/*
 	 * Count of threads that are not idle (idle = waiting for events)
 	 *
@@ -132,6 +130,8 @@ private:
 	 * changes.  Is also triggered by this class when an exception is queued.
 	 */
 	ScopedCounter<int> threads_not_idle_counter;
+	/* Thread entry point */
+	void do_threaded_loop(const EventLoopPool pool);
 };
 
 }

@@ -24,13 +24,16 @@ class ScopedCounter {
 public:
 	using Delta = typename make_signed<Counter>::type;
 	ScopedCounter(const ScopedCounter&) = delete;
+	ScopedCounter<Counter>& operator =(const ScopedCounter&) = delete;
 	ScopedCounter(ScopedCounter&&) = delete;
+	ScopedCounter<Counter>& operator =(ScopedCounter&&) = delete;
 	ScopedCounter(const Counter initial_value = 0);
-	~ScopedCounter();
 	class ScopedAdjustment {
 	public:
 		ScopedAdjustment() = delete;
 		ScopedAdjustment(const ScopedAdjustment&) = delete;
+		ScopedAdjustment& operator =(ScopedAdjustment&) = delete;
+		ScopedAdjustment& operator =(ScopedAdjustment&&) = delete;
 		ScopedAdjustment(ScopedAdjustment&&);
 		ScopedAdjustment(ScopedCounter<Counter>& counter, const Delta delta);
 		~ScopedAdjustment();
@@ -39,14 +42,14 @@ public:
 		Delta delta;
 	};
 	ScopedAdjustment delta(const Delta amount);
-	bool isZero();
-	void waitForZero();
-	void notify();
+	bool isZero() const;
+	void waitForZero() const;
+	void notify() const;
 	using Guard = ScopedCounter<Counter>::ScopedAdjustment;
 private:
-	mutex zero_cv_mutex;
-	condition_variable zero_cv;
-	atomic<Counter> value{0};
+	Counter value{0};
+	mutable mutex zero_cv_mutex;
+	mutable condition_variable zero_cv;
 	void adjust(const Delta delta);
 };
 

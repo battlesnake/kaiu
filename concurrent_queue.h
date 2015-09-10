@@ -46,8 +46,8 @@ public:
 	/* Mutex is exposed for ParallelEventLoop::join */
 	mutable mutex queue_mutex;
 private:
-	condition_variable unblock;
 	queue<T> events;
+	condition_variable unblock;
 	atomic<bool> nowaiting{false};
 	void notify();
 };
