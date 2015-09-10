@@ -142,61 +142,6 @@ class PromiseStream;
  *
  */
 
-/*
- * Streaming operation can be stateful or stateless.  When stateless, the
- * streaming callback is called for each piece of data written to the stream,
- * and the oldest un-processed data is the only parameter.  The stream result is
- * the result passed from the producer via the resolve() method.
- *
- *   Promise<StreamAction> data_callback(Datum)
- *   StreamAction data_callback(Datum)
- *
- *   stream(data_callback) → Promise<Result>
- *
- * A stateful streaming operation is analogous to a "reduce" or "aggregate"
- * operation in STL/JavaScript/.NET;  a state object is initialized when the
- * callback is bound, and this state object is passed by reference to the stream
- * callback (in addition to the data).  The callback may mutate this state
- * object.  The resulting promise from a stateful streaming operation is a
- * std::pair, which contains the final state in addition to the stream result.
- *
- *   Promise<StreamAction> data_callback(State&, Datum)
- *   StreamAction data_callback(State&, Datum)
- *
- *   stream(data_callback, StateArgs...) → Promise<pair<State, Result>>
- *
- * The state object is initialized with StateArgs... constructor arguments.
- */
-
-/*
- * The consumer may be called zero, one, or multiple times.
- *
- * The consumer returns a StreamAction, or a promise which resolves to a
- * StreamAction.
- *
- *   Continue: keep streaming and consuming data
- *   Discard: keep streaming, discard data (don't call consumer again)
- *   Stop: abort streaming - discards any remaining data and instructs
- *       producer to stop producing.  If the producer does not honour this
- *       then Stop has the same effect as Discard.
- *
- * For the producer to stop the operation, it should resolve/reject the
- * promise stream.  Unless the consumer requests Stop/Discard, it will be
- * called for all remaining unprocessed data, before the final promise is
- * resolved/rejected according to the result given by the producer.
- *
- * If the consumer throws or returns a rejected promise, the stream will reject
- * with that exception (which overrides any result set by the producer).  Also
- * any remaining/future data will be ignored as if the consumer had returned
- * StreamAction::Stop.
- *
- * The producer can use the "is_stopping" method to see whether the consumer has
- * requested the producer to stop.
- *
- * The "data_action" method should not be used, it is only exposed to allow
- * forwarding of promise streams, which is required for task_stream.
- */
-
 class PromiseStreamStateBase : public self_managing {
 public:
 	/* Default constructor */
@@ -272,13 +217,14 @@ class PromiseStreamState : public PromiseStreamStateBase {
 	template <
 		typename Consumer,
 		template <typename, typename> class Test,
+		typename Expect,
 		typename ResultType,
 		typename... Args>
 	using stream_sel =
 		typename enable_if<
 			Test<
 				typename result_of<Consumer(Args&&...)>::type,
-				StreamAction
+				Expect
 			>::value,
 			Promise<ResultType>
 		>::type;
@@ -305,19 +251,27 @@ public:
 	Promise<Result> stop();
 	/* Stateless consumer returning promise */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_promise_is, Result, Datum>
+	stream_sel<Consumer, result_of_promise_is, StreamAction, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateless consumer returning action */
 	template <typename = void, typename Consumer>
-	stream_sel<Consumer, result_of_not_promise_is, Result, Datum>
+	stream_sel<Consumer, result_of_not_promise_is, StreamAction, Result, Datum>
+		stream(Consumer consumer);
+	/* Stateless consumer returning void */
+	template <typename = void, typename Consumer>
+	stream_sel<Consumer, result_of_not_promise_is, void, Result, Datum>
 		stream(Consumer consumer);
 	/* Stateful consumer returning promise */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_promise_is, pair<State, Result>, State&, Datum>
+	stream_sel<Consumer, result_of_promise_is, StreamAction, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 	/* Stateful consumer returning action */
 	template <typename State, typename Consumer, typename... Args>
-	stream_sel<Consumer, result_of_not_promise_is, pair<State, Result>, State&, Datum>
+	stream_sel<Consumer, result_of_not_promise_is, StreamAction, pair<State, Result>, State&, Datum>
+		stream(Consumer consumer, Args&&... args);
+	/* Stateful consumer returning void */
+	template <typename State, typename Consumer, typename... Args>
+	stream_sel<Consumer, result_of_not_promise_is, void, pair<State, Result>, State&, Datum>
 		stream(Consumer consumer, Args&&... args);
 protected:
 	/* Is data queued? */

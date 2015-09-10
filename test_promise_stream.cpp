@@ -207,7 +207,6 @@ void flow_test_reject()
 			assert.fail("REJECT", "Data received after rejection");
 		}
 		state.emplace_back(move(value));
-		return StreamAction::Continue;
 	};
 	auto next = [] (pair<list<vector<char>>, int> res) {
 		assert.fail("REJECT", "Promise stream resolved");
@@ -245,7 +244,6 @@ void efficiency_test()
 	PromiseStream<Stone, Stone> test_stream;
 	auto consumer = [] (Stone& state, Stone datum) {
 		*state += *datum;
-		return StreamAction::Continue;
 	};
 	auto next = [] (pair<Stone, Stone> res) {
 		Stone& state = res.first;
