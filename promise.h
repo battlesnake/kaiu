@@ -16,6 +16,10 @@
 #include "promise/callback_pack.h"
 #include "promise/monad.h"
 
+#if defined(DEBUG)
+#define SAFE_PROMISES
+#endif
+
 namespace kaiu {
 
 /*
@@ -165,7 +169,7 @@ public:
 	PromiseStateBase(PromiseStateBase&&) = delete;
 	PromiseStateBase operator =(PromiseStateBase const&) = delete;
 	PromiseStateBase operator =(PromiseStateBase&&) = delete;
-#if defined(DEBUG)
+#if defined(SAFE_PROMISES)
 	/* Destructor */
 	~PromiseStateBase() noexcept(false);
 #endif

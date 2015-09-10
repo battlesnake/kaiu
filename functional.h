@@ -124,15 +124,15 @@ Curried<Result, Arity, Functor, CurriedArgs...>
 template <typename Result, typename Functor, typename Args>
 Result Invoke(Functor func, Args args);
 
-#ifdef enable_monads
+#if defined(ENABLE_FUNCTIONAL_BIND)
 /***
- * Monad operator
+ * Bind operator
  *
  * Adds operator such that;
- *   "T&& t , U(T) u" ⇒ "u(t)"
+ *   "T t , U(T) u" ⇒ "u(t)"
  *
  * Giving us this syntax for chain operations:
- *   "T&& t , U(T) u , V(U) v" ⇒ "v(u(t))"     
+ *   "T t , U(T) u , V(U) v" ⇒ "v(u(t))"
  *
  * Given the requirements for left side <t> and right-side <u>:
  *  - <u> is a curry-wrapped function
@@ -141,6 +141,10 @@ Result Invoke(Functor func, Args args);
  * You MUST compile with '-Wunused-value', in order to detect when the operator
  * has not been chosen by the compiler (since a no-op default will silently be
  * used in its place, triggering an unused-value warning)
+ *
+ * This is a horrible idea, added only for fun.  Please DO NOT use it in
+ * production!  Or change the operator to any left-to-right operator that isn't
+ * the comma!
  */
 template <typename From, typename To,
 	typename DFrom = typename decay<From>::type,
@@ -150,6 +154,19 @@ typename enable_if<
 	DTo::arity == 1,
 		typename DTo::result_type>::type
 	operator ,(From&& from, To to);
+
+/* Disable comma operator if we think you've made a mistake */
+template <typename From, typename To,
+	typename DFrom = typename decay<From>::type,
+	typename DTo = typename decay<To>::type>
+typename enable_if<
+	is_curried_function<DTo>::value &&
+	DTo::arity != 1,
+		typename DTo::result_type>::type
+	operator ,(From&& from, To to)
+{
+	static_assert("Functional bind cannot be implemented: Functor has arity != 1");
+}
 #endif
 
 }

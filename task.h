@@ -115,7 +115,7 @@ Promise<Result> dispatch(
  * Task monad operators
  *
  *
- * Task1&& <t> | Task2&& <u, ...
+ * Task1&& t | Task2&& u, ...
  *
  * Requires:
  *  - t, u are curried promise factories
@@ -126,8 +126,9 @@ Promise<Result> dispatch(
  * Promise&& t | Task&& u, ...
  *
  * Requires:
- *  - <u> is a curried promise factory
- *  - <u> has arity 1
+ *  - u is Promise
+ *  - u is a curried promise factory
+ *  - u has arity 1
  */
 
 template <typename From, typename To,

@@ -32,7 +32,7 @@ namespace detail {
 
 /*** PromiseStateBase ***/
 
-#if defined(DEBUG)
+#if defined(SAFE_PROMISES)
 PromiseStateBase::~PromiseStateBase() noexcept(false)
 {
 	/*
@@ -63,12 +63,14 @@ void PromiseStateBase::reject(const string& error)
 
 void PromiseStateBase::set_callbacks(ensure_locked lock, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject)
 {
+#if defined(SAFE_PROMISES)
 	if (callbacks_assigned) {
 		throw logic_error("Attempted to double-bind to promise");
 	}
 	if (!resolve || !reject) {
 		throw logic_error("Attempted to bind null callback");
 	}
+#endif
 	on_resolve = resolve;
 	on_reject = reject;
 	callbacks_assigned = true;
@@ -77,6 +79,7 @@ void PromiseStateBase::set_callbacks(ensure_locked lock, function<void(ensure_lo
 
 void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_state)
 {
+#if defined(SAFE_PROMISES)
 	/* Validate transition */
 	switch (next_state) {
 	case promise_state::pending:
@@ -99,6 +102,7 @@ void PromiseStateBase::set_state(ensure_locked lock, const promise_state next_st
 	default:
 		throw logic_error("Invalid state");
 	}
+#endif
 	/* Apply transition */
 	state = next_state;
 	update_state(lock);
