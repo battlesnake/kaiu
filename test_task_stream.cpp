@@ -359,8 +359,8 @@ void random_synchronization_test()
 void concurrency_test()
 {
 	synchronization_test();
-	random_synchronization_test();
-	//assert.skip("RSYNCHRO");
+	//random_synchronization_test();
+	assert.skip("RSYNCHRO");
 }
 
 int main(int argc, char *argv[])
