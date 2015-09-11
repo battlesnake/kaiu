@@ -6,7 +6,8 @@
 #include "event_loop.h"
 
 using namespace kaiu;
-using namespace chrono_literals;
+using namespace std;
+using namespace std::chrono_literals;
 
 Assertions assert({
 	{ nullptr, "Single-threaded event loop" },

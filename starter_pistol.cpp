@@ -3,6 +3,8 @@
 
 namespace kaiu {
 
+using namespace std;
+
 StarterPistol::StarterPistol(const int racers) :
 	racers(racers)
 {

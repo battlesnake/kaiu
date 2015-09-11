@@ -6,7 +6,7 @@ template <typename T>
 struct is_promise_stream {
 private:
 	template <typename U>
-	static integral_constant<bool, U::is_promise_stream> check(int);
+	static std::integral_constant<bool, U::is_promise_stream> check(int);
 	template <typename>
 	static std::false_type check(...);
 public:

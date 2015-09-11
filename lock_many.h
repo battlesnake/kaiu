@@ -4,7 +4,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /* Lock multiple mutexes while avoiding deadlocks */
 class lock_many {
@@ -13,7 +12,7 @@ public:
 	lock_many(It begin, It end);
 	lock_many() = delete;
 private:
-	vector<unique_lock<mutex>> locks;
+	std::vector<std::unique_lock<std::mutex>> locks;
 };
 
 }

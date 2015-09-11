@@ -9,8 +9,8 @@ namespace kaiu {
 class PromiseStateBase : public self_managing {
 public:
 	/* Reject */
-	void reject(exception_ptr error);
-	void reject(const string& error);
+	void reject(std::exception_ptr error);
+	void reject(const std::string& error);
 	/* Default constructor */
 	PromiseStateBase() = default;
 	/* No copy/move constructor */
@@ -34,23 +34,23 @@ protected:
 	 * Set the resolve/reject callbacks.  If the promise has been
 	 * resolved/rejected, the appropriate callback will be called immediately.
 	 */
-	void set_callbacks(ensure_locked, function<void(ensure_locked)> resolve, function<void(ensure_locked)> reject);
+	void set_callbacks(ensure_locked, std::function<void(ensure_locked)> resolve, std::function<void(ensure_locked)> reject);
 	/* Get/set rejection result */
-	void set_error(ensure_locked, exception_ptr error);
-	exception_ptr get_error(ensure_locked) const;
+	void set_error(ensure_locked, std::exception_ptr error);
+	std::exception_ptr get_error(ensure_locked) const;
 	/* Make this promise a terminator */
 	void set_terminator(ensure_locked);
 private:
 	promise_state state{promise_state::pending};
-	exception_ptr error{};
+	std::exception_ptr error{};
 	/*
 	 * We release the callbacks after using them, so this variable is used to
 	 * track whether we have bound callbacks at all, so that re-binding cannot
 	 * happen after unbinding (and completion).
 	 */
 	bool callbacks_assigned{false};
-	function<void(ensure_locked)> on_resolve{nullptr};
-	function<void(ensure_locked)> on_reject{nullptr};
+	std::function<void(ensure_locked)> on_resolve{nullptr};
+	std::function<void(ensure_locked)> on_reject{nullptr};
 };
 
 }

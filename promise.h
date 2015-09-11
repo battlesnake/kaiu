@@ -24,7 +24,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /***
  * Promise class
@@ -54,11 +53,11 @@ private:
 	friend class Promise<DResult>;
 	friend class Promise<DResult&>;
 	friend class Promise<DResult&&>;
-	static_assert(!is_void<DResult>::value, "Void promises are no longer supported");
-	static_assert(!is_same<DResult, exception_ptr>::value, "Promise result type cannot be exception_ptr");
+	static_assert(!std::is_void<DResult>::value, "Void promises are no longer supported");
+	static_assert(!std::is_same<DResult, std::exception_ptr>::value, "Promise result type cannot be std::exception_ptr");
 	static_assert(!is_promise<DResult>::value, "Promise<Promise<T>> is invalid, use Promise<T>/forward_to instead");
-	Promise(shared_ptr<PromiseState<DResult>> const promise);
-	shared_ptr<PromiseState<DResult>> promise;
+	Promise(std::shared_ptr<PromiseState<DResult>> const promise);
+	std::shared_ptr<PromiseState<DResult>> promise;
 };
 
 static_assert(is_promise<Promise<int>>::value, "Promise traits test #1 failed");

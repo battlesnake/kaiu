@@ -7,7 +7,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 namespace promise {
 
@@ -74,7 +73,7 @@ UnboundTask<Result, Args...> task(
 
 template <typename Result, typename... Args>
 UnboundTask<Result, Args...> dispatchable(
-	function<Result(Args...)> func,
+	std::function<Result(Args...)> func,
 	const EventLoopPool action_pool,
 	const EventLoopPool reaction_pool = EventLoopPool::same)
 		{ return task(factory(func), action_pool, reaction_pool); }
@@ -90,13 +89,13 @@ UnboundTask<Result, Args...> dispatchable(
 
 template <typename Result, typename... Args>
 Promise<Result> dispatch(
-	function<Result(Args...)> func,
+	std::function<Result(Args...)> func,
 	const EventLoopPool action_pool,
 	const EventLoopPool reaction_pool,
 	EventLoop& loop,
 	Args&&... args)
 		{ return task(factory(func), action_pool, reaction_pool)
-			(loop, forward<Args>(args)...); }
+			(loop, std::forward<Args>(args)...); }
 
 template <typename Result, typename... Args>
 Promise<Result> dispatch(
@@ -106,7 +105,7 @@ Promise<Result> dispatch(
 	EventLoop& loop,
 	Args&&... args)
 		{ return task(factory(func), action_pool, reaction_pool)
-			(loop, forward<Args>(args)...); }
+			(loop, std::forward<Args>(args)...); }
 
 }
 
@@ -133,9 +132,9 @@ namespace task_monad {
  */
 
 template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
+	typename DFrom = typename std::decay<From>::type,
+	typename DTo = typename std::decay<To>::type>
+typename std::enable_if<
 	is_curried_function<DFrom>::value &&
 	is_curried_function<DTo>::value &&
 	DFrom::arity == 0 &&
@@ -145,13 +144,13 @@ typename enable_if<
 		typename DFrom::result_type>::type
 operator | (From&& l, To&& r)
 {
-	return l()->then(forward<To>(r));
+	return l()->then(std::forward<To>(r));
 }
 
 template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
+	typename DFrom = typename std::decay<From>::type,
+	typename DTo = typename std::decay<To>::type>
+typename std::enable_if<
 	is_promise<DFrom>::value &&
 	is_curried_function<DTo>::value &&
 	DTo::arity == 1 &&
@@ -159,7 +158,7 @@ typename enable_if<
 		typename DTo::result_type>::type
 operator | (From&& l, To&& r)
 {
-	return l->then(forward<To>(r));
+	return l->then(std::forward<To>(r));
 }
 
 }

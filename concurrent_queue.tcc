@@ -4,7 +4,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 template <typename T>
 ConcurrentQueue<T>::ConcurrentQueue(bool nowaiting)
@@ -15,7 +14,7 @@ ConcurrentQueue<T>::ConcurrentQueue(bool nowaiting)
 template <typename T>
 void ConcurrentQueue<T>::push(const T& item)
 {
-	lock_guard<mutex> lock(queue_mutex);
+	std::lock_guard<std::mutex> lock(queue_mutex);
 	events.push(item);
 	notify();
 }
@@ -23,16 +22,16 @@ void ConcurrentQueue<T>::push(const T& item)
 template <typename T>
 void ConcurrentQueue<T>::push(T&& item)
 {
-	lock_guard<mutex> lock(queue_mutex);
-	events.push(move(item));
+	std::lock_guard<std::mutex> lock(queue_mutex);
+	events.push(std::move(item));
 	notify();
 }
 
 template <typename T>
 template <typename... Args> void ConcurrentQueue<T>::emplace(Args&&... args)
 {
-	lock_guard<mutex> lock(queue_mutex);
-	events.emplace(forward<Args...>(args...));
+	std::lock_guard<std::mutex> lock(queue_mutex);
+	events.emplace(std::forward<Args...>(args...));
 	notify();
 }
 
@@ -47,7 +46,7 @@ template <typename WaitGuard, typename... GuardParam>
 bool ConcurrentQueue<T>::pop(T& out, GuardParam&&... guard_param)
 {
 	/* Lock the queue */
-	unique_lock<mutex> lock(queue_mutex);
+	std::unique_lock<std::mutex> lock(queue_mutex);
 	/* Queue is always locked when this is called */
 	auto end_wait_condition = [this] {
 		return is_nowaiting() || !events.empty();
@@ -56,7 +55,7 @@ bool ConcurrentQueue<T>::pop(T& out, GuardParam&&... guard_param)
 #pragma GCC diagnostic ignored "-Wunused-variable"
 	if (!end_wait_condition()) {
 		/* Externally supplied wait callback guard */
-		WaitGuard guard(forward<GuardParam>(guard_param)...);
+		WaitGuard guard(std::forward<GuardParam>(guard_param)...);
 		/*
 		 * Unlocks queue, re-locks it when calling end_wait_condition and upon
 		 * return
@@ -68,7 +67,7 @@ bool ConcurrentQueue<T>::pop(T& out, GuardParam&&... guard_param)
 	if (events.empty()) {
 		return false;
 	}
-	out = move(events.front());
+	out = std::move(events.front());
 	events.pop();
 	return true;
 }
@@ -98,7 +97,7 @@ bool ConcurrentQueue<T>::isEmpty(bool is_locked) const
 	if (is_locked) {
 		return events.empty();
 	} else {
-		lock_guard<mutex> lock(queue_mutex);
+		std::lock_guard<std::mutex> lock(queue_mutex);
 		return events.empty();
 	}
 }

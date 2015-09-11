@@ -4,7 +4,7 @@ namespace kaiu {
 
 namespace detail {
 
-	function<void()> combine_finalizers(const function<void()> f1, const function<void()> f2);
+	std::function<void()> combine_finalizers(const std::function<void()> f1, const std::function<void()> f2);
 
 }
 
@@ -33,15 +33,15 @@ namespace monads {
  */
 
 template <typename Range, typename Domain>
-const auto operator / (const Factory<Range, Domain> l, const Factory<Range, exception_ptr> r)
+const auto operator / (const Factory<Range, Domain> l, const Factory<Range, std::exception_ptr> r)
 	{ return callback_pack<Range, Domain>(l, r); }
 
 template <typename Range>
-const auto operator / (const nullptr_t, const Factory<Range, exception_ptr> r)
+const auto operator / (const nullptr_t, const Factory<Range, std::exception_ptr> r)
 	{ return callback_pack<Range, Range>(nullptr, r); }
 
 template <typename Range, typename Domain>
-const auto operator / (const callback_pack<Range, Domain>& l, const function<void()> r)
+const auto operator / (const callback_pack<Range, Domain>& l, const std::function<void()> r)
 	{ return callback_pack<Range, Domain>(l.next, l.handler, detail::combine_finalizers(l.finalizer, r)); }
 
 /*

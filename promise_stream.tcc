@@ -7,7 +7,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*** PromiseStreamState ***/
 
@@ -17,21 +16,21 @@ template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::resolve(Result result)
 {
 	auto lock = get_lock();
-	do_resolve(lock, move(result));
+	do_resolve(lock, std::move(result));
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::reject(exception_ptr error)
+void PromiseStreamState<Result, Datum>::reject(std::exception_ptr error)
 {
 	auto lock = get_lock();
 	do_reject(lock, error, false);
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::reject(const string& error)
+void PromiseStreamState<Result, Datum>::reject(const std::string& error)
 {
 	auto lock = get_lock();
-	do_reject(lock, make_exception_ptr(runtime_error(error)), false);
+	do_reject(lock, make_exception_ptr(std::runtime_error(error)), false);
 }
 
 template <typename Result, typename Datum>
@@ -40,7 +39,7 @@ void PromiseStreamState<Result, Datum>::write(Args&&... args)
 {
 	auto lock = get_lock();
 	if (get_action(lock) == StreamAction::Continue) {
-		emplace_data(lock, forward<Args>(args)...);
+		emplace_data(lock, std::forward<Args>(args)...);
 		set_stream_has_been_written_to(lock);
 	}
 	process_data(lock);
@@ -52,10 +51,10 @@ void PromiseStreamState<Result, Datum>::set_data_callback(DataFunc data_callback
 	auto lock = get_lock();
 #if defined(SAFE_PROMISE_STREAMS)
 	if (on_data != nullptr) {
-		throw logic_error("Callbacks are already assigned");
+		throw std::logic_error("Callbacks are already assigned");
 	}
 	if (data_callback == nullptr) {
-		throw logic_error("Attempted to bind null callback");
+		throw std::logic_error("Attempted to bind null callback");
 	}
 #endif
 	on_data = data_callback;
@@ -69,9 +68,9 @@ Promise<Result> PromiseStreamState<Result, Datum>::
 {
 	auto data = [consumer] (ensure_locked, Datum datum) {
 		try {
-			return consumer(move(datum));
+			return consumer(std::move(datum));
 		} catch (...) {
-			return promise::rejected<StreamAction>(current_exception());
+			return promise::rejected<StreamAction>(std::current_exception());
 		}
 	};
 	set_data_callback(data);
@@ -80,15 +79,15 @@ Promise<Result> PromiseStreamState<Result, Datum>::
 
 template <typename Result, typename Datum>
 template <typename State, typename... Args>
-Promise<pair<State, Result>> PromiseStreamState<Result, Datum>::
+Promise<std::pair<State, Result>> PromiseStreamState<Result, Datum>::
 	do_stateful_stream(stateful_stream_consumer<State> consumer, Args&&... args)
 {
-	auto state = make_shared<State>(forward<Args>(args)...);
+	auto state = std::make_shared<State>(std::forward<Args>(args)...);
 	auto consumer_proxy = [this, consumer, state] (Datum datum) {
-		return consumer(*state, move(datum));
+		return consumer(*state, std::move(datum));
 	};
 	auto next_proxy = [this, state] (Result result) {
-		return make_pair(move(*state), move(result));
+		return std::make_pair(std::move(*state), std::move(result));
 	};
 	return do_stream(consumer_proxy)
 		->then(next_proxy);
@@ -120,7 +119,7 @@ void PromiseStreamState<Result, Datum>::forward_to(PromiseStream<Result, Datum> 
 {
 	this
 		->stream<void>([next] (Datum datum) {
-			next->write(move(datum));
+			next->write(std::move(datum));
 			return next->data_action();
 		})
 		->forward_to(next);
@@ -159,14 +158,14 @@ void PromiseStreamState<Result, Datum>::call_data_callback(ensure_locked lock, D
 	 * calling thread, but may not always work if the callbacks are called in
 	 * another thread.  "current thread id" fixes that case.
 	 */
-	auto async_check = make_shared<atomic<bool>>(false);
-	const auto caller_id = this_thread::get_id();
+	auto async_check = std::make_shared<std::atomic<bool>>(false);
+	const auto caller_id = std::this_thread::get_id();
 	const auto is_async = [=] {
-		return *async_check || this_thread::get_id() != caller_id;
+		return *async_check || std::this_thread::get_id() != caller_id;
 	};
 	using lock_type = typename std::decay<decltype(lock)>::type;
 	/* Run consumer */
-	on_data(lock, move_if_noexcept(datum))
+	on_data(lock, std::move_if_noexcept(datum))
 		->then(
 			[this, is_async, lck=&lock] (const StreamAction action) {
 				/* Get lock if we're running asynchronously */
@@ -182,7 +181,7 @@ void PromiseStreamState<Result, Datum>::call_data_callback(ensure_locked lock, D
 				/* Will release the lock */
 				process_data(lock);
 			},
-			[this, is_async, lck=&lock] (exception_ptr error) {
+			[this, is_async, lck=&lock] (std::exception_ptr error) {
 				/* Get lock if we're running asynchronously */
 				const bool async = is_async();
 				lock_type new_lock;
@@ -206,7 +205,7 @@ void PromiseStreamState<Result, Datum>::process_data(ensure_locked lock)
 {
 	Datum datum;
 	if (take_data(lock, datum)) {
-		call_data_callback(lock, move(datum));
+		call_data_callback(lock, std::move(datum));
 	}
 }
 
@@ -245,7 +244,7 @@ bool PromiseStreamState<Result, Datum>::take_data(ensure_locked lock, Datum& out
 		set_buffer_is_empty(lock);
 		return false;
 	}
-	out = move(buffer.front());
+	out = std::move(buffer.front());
 	buffer.pop();
 	/* Return success */
 	return true;
@@ -255,7 +254,7 @@ template <typename Result, typename Datum>
 template <typename... Args>
 void PromiseStreamState<Result, Datum>::emplace_data(ensure_locked, Args&&... args)
 {
-	buffer.emplace(forward<Args>(args)...);
+	buffer.emplace(std::forward<Args>(args)...);
 }
 
 template <typename Result, typename Datum>
@@ -267,11 +266,11 @@ bool PromiseStreamState<Result, Datum>::has_data(ensure_locked) const
 template <typename Result, typename Datum>
 void PromiseStreamState<Result, Datum>::do_resolve(ensure_locked lock, Result result)
 {
-	set_stream_result(lock, stream_result::resolved, resolve_completer(move(result)));
+	set_stream_result(lock, stream_result::resolved, resolve_completer(std::move(result)));
 }
 
 template <typename Result, typename Datum>
-void PromiseStreamState<Result, Datum>::do_reject(ensure_locked lock, exception_ptr error, bool consumer_failed)
+void PromiseStreamState<Result, Datum>::do_reject(ensure_locked lock, std::exception_ptr error, bool consumer_failed)
 {
 	set_action(lock, StreamAction::Stop);
 	set_stream_result(lock, consumer_failed ? stream_result::consumer_failed : stream_result::rejected, reject_completer(error));
@@ -281,14 +280,14 @@ template <typename Result, typename Datum>
 auto PromiseStreamState<Result, Datum>::resolve_completer(Result result)
 	-> completer_func
 {
-	auto functor = [this, result = move(result)] (ensure_locked lock) mutable {
-		proxy_promise->resolve(move(result));
+	auto functor = [this, result = std::move(result)] (ensure_locked lock) mutable {
+		proxy_promise->resolve(std::move(result));
 	};
-	return detail::make_shared_functor(move(functor));
+	return detail::make_shared_functor(std::move(functor));
 }
 
 template <typename Result, typename Datum>
-auto PromiseStreamState<Result, Datum>::reject_completer(exception_ptr error)
+auto PromiseStreamState<Result, Datum>::reject_completer(std::exception_ptr error)
 	-> completer_func
 {
 	return [this, error] (ensure_locked) {
@@ -312,7 +311,7 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 	-> stream_sel<Consumer, result_of_not_promise_is, StreamAction, Result, Datum>
 {
 	auto data_proxy = [consumer] (Datum datum) {
-		return promise::resolved<StreamAction>(consumer(move(datum)));
+		return promise::resolved<StreamAction>(consumer(std::move(datum)));
 	};
 	return do_stream(data_proxy);
 }
@@ -324,7 +323,7 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 	-> stream_sel<Consumer, result_of_not_promise_is, void, Result, Datum>
 {
 	auto data_proxy = [consumer] (Datum datum) {
-		consumer(move(datum));
+		consumer(std::move(datum));
 		return promise::resolved(StreamAction::Continue);
 	};
 	return do_stream(data_proxy);
@@ -334,34 +333,34 @@ auto PromiseStreamState<Result, Datum>::stream(Consumer consumer)
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_promise_is, StreamAction, pair<State, Result>, State&, Datum>
+	-> stream_sel<Consumer, result_of_promise_is, StreamAction, std::pair<State, Result>, State&, Datum>
 {
-	return do_stateful_stream<State, Args...>(consumer, forward<Args>(args)...);
+	return do_stateful_stream<State, Args...>(consumer, std::forward<Args>(args)...);
 }
 
 /* Stateful consumer returning action */
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_not_promise_is, StreamAction, pair<State, Result>, State&, Datum>
+	-> stream_sel<Consumer, result_of_not_promise_is, StreamAction, std::pair<State, Result>, State&, Datum>
 {
 	auto data_proxy = [consumer] (State& state, Datum datum) {
-		return promise::resolved<StreamAction>(consumer(state, move(datum)));
+		return promise::resolved<StreamAction>(consumer(state, std::move(datum)));
 	};
-	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
+	return do_stateful_stream<State, Args...>(data_proxy, std::forward<Args>(args)...);
 }
 
 /* Stateful consumer returning void */
 template <typename Result, typename Datum>
 template <typename State, typename Consumer, typename... Args>
 auto PromiseStreamState<Result, Datum>::stream(Consumer consumer, Args&&... args)
-	-> stream_sel<Consumer, result_of_not_promise_is, void, pair<State, Result>, State&, Datum>
+	-> stream_sel<Consumer, result_of_not_promise_is, void, std::pair<State, Result>, State&, Datum>
 {
 	auto data_proxy = [consumer] (State& state, Datum datum) {
-		consumer(state, move(datum));
+		consumer(state, std::move(datum));
 		return promise::resolved(StreamAction::Continue);
 	};
-	return do_stateful_stream<State, Args...>(data_proxy, forward<Args>(args)...);
+	return do_stateful_stream<State, Args...>(data_proxy, std::forward<Args>(args)...);
 }
 
 /*** PromiseStream ***/
@@ -377,7 +376,7 @@ auto PromiseStream<Result, Datum>::operator ->() const -> PromiseStreamState<Res
 /* Constructor for sharing state with another promise */
 
 template <typename Result, typename Datum>
-PromiseStream<Result, Datum>::PromiseStream(shared_ptr<PromiseStreamState<Result, Datum>> const state) :
+PromiseStream<Result, Datum>::PromiseStream(std::shared_ptr<PromiseStreamState<Result, Datum>> const state) :
 	stream(state)
 {
 }
@@ -386,7 +385,7 @@ PromiseStream<Result, Datum>::PromiseStream(shared_ptr<PromiseStreamState<Result
 
 template <typename Result, typename Datum>
 PromiseStream<Result, Datum>::PromiseStream() :
-	stream(make_shared<PromiseStreamState<Result, Datum>>())
+	stream(std::make_shared<PromiseStreamState<Result, Datum>>())
 {
 }
 

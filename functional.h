@@ -6,7 +6,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 namespace detail {
 
@@ -21,7 +20,7 @@ Result invoke_with_tuple(Functor func, Args tuple);
 
 template <typename Result, typename Functor, typename Args, size_t ArgCount,
 	size_t... Indices>
-Result invoke_shuffle_args(Functor func, index_sequence<Indices...> indices, Args tuple);
+Result invoke_shuffle_args(Functor func, std::index_sequence<Indices...> indices, Args tuple);
 
 /*
  * CurriedFunction<Result, Arity, Functor, CurriedArgs...>(func, [args...])
@@ -35,7 +34,7 @@ Result invoke_shuffle_args(Functor func, index_sequence<Indices...> indices, Arg
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 struct CurriedFunction {
 private:
-	using ArgsTuple = tuple<CurriedArgs...>;
+	using ArgsTuple = std::tuple<CurriedArgs...>;
 public:
 	static const auto is_curried_function = true;
 	using result_type = Result;
@@ -54,11 +53,11 @@ public:
 	 * operator ()(args): same as .apply(args).invoke()
 	 */
 	template <typename... ExtraArgs>
-	typename enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
+	typename std::enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
 	operator () (ExtraArgs&&... extra_args) const;
 	/* With no parameters, same as .invoke() */
 	template <typename... ExtraArgs>
-	typename enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
+	typename std::enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
 	operator () (ExtraArgs&&... extra_args) const;
 	/*
 	 * Left-shift operator to curry
@@ -68,9 +67,9 @@ public:
 	 */
 	template <typename Arg>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg&>
-		operator << (reference_wrapper<Arg> ref) const;
+		operator << (std::reference_wrapper<Arg> ref) const;
 	template <typename Arg>
-	CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename decay<Arg>::type>
+	CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename std::decay<Arg>::type>
 		operator << (Arg&& arg) const;
 	/*
 	 * Partial application, returns a new functor, with the extra arguments
@@ -82,7 +81,7 @@ public:
 		apply (ExtraArgs&&... extra_args) const;
 	/* Calls the function */
 	template <size_t Arity_ = Arity>
-	typename enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
+	typename std::enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
 	invoke() const;
 	/* Always returns false */
 	bool operator == (nullptr_t) const;
@@ -101,7 +100,7 @@ template <typename T>
 struct is_curried_function {
 private:
 	template <typename U>
-	static integral_constant<bool, U::is_curried_function> check(int);
+	static std::integral_constant<bool, U::is_curried_function> check(int);
 	template <typename>
 	static std::false_type check(...);
 public:
@@ -113,7 +112,7 @@ using Curried = detail::CurriedFunction<Result, Arity, Functor, CurriedArgs...>;
 
 /* Curry-wrap std::function */
 template <typename Result, typename... Args>
-const auto curry_wrap(function<Result(Args...)> functor)
+const auto curry_wrap(std::function<Result(Args...)> functor)
 {
 	return Curried<Result, sizeof...(Args), decltype(functor)>(functor);
 }
@@ -160,22 +159,22 @@ namespace functional_chain {
  * used in its place, triggering an unused-value warning)
  */
 template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
+	typename DFrom = typename std::decay<From>::type,
+	typename DTo = typename std::decay<To>::type>
+typename std::enable_if<
 	is_curried_function<DTo>::value &&
 	DTo::arity == 1,
 		typename DTo::result_type>::type
 operator ,(From&& from, To to)
 {
-	return to(forward<From>(from));
+	return to(std::forward<From>(from));
 }
 
 /* Disable comma operator if we think you've made a mistake */
 template <typename From, typename To,
-	typename DFrom = typename decay<From>::type,
-	typename DTo = typename decay<To>::type>
-typename enable_if<
+	typename DFrom = typename std::decay<From>::type,
+	typename DTo = typename std::decay<To>::type>
+typename std::enable_if<
 	is_curried_function<DTo>::value &&
 	DTo::arity != 1,
 		typename DTo::result_type>::type

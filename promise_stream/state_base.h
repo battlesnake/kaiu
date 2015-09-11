@@ -30,7 +30,7 @@ protected:
 	stream_state get_state(ensure_locked) const;
 	/* Stream result type */
 	enum class stream_result { pending, resolved, rejected, consumer_failed };
-	using completer_func = function<void(ensure_locked)>;
+	using completer_func = std::function<void(ensure_locked)>;
 	/* A→B: When stream has been written to */
 	void set_stream_has_been_written_to(ensure_locked);
 	/* B→C, A→E: When result has been bound */

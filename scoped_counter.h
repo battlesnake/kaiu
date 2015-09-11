@@ -6,7 +6,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*
  * Encapsulates an integral value.  Provides a method to temporarily
@@ -19,10 +18,10 @@ using namespace std;
  */
 template <typename Counter>
 class ScopedCounter {
-	static_assert(is_integral<Counter>::value,
+	static_assert(std::is_integral<Counter>::value,
 		"ScopedCounter value type must be integral");
 public:
-	using Delta = typename make_signed<Counter>::type;
+	using Delta = typename std::make_signed<Counter>::type;
 	ScopedCounter(const ScopedCounter&) = delete;
 	ScopedCounter<Counter>& operator =(const ScopedCounter&) = delete;
 	ScopedCounter(ScopedCounter&&) = delete;
@@ -48,8 +47,8 @@ public:
 	using Guard = ScopedCounter<Counter>::ScopedAdjustment;
 private:
 	Counter value{0};
-	mutable mutex zero_cv_mutex;
-	mutable condition_variable zero_cv;
+	mutable std::mutex zero_cv_mutex;
+	mutable std::condition_variable zero_cv;
 	void adjust(const Delta delta);
 };
 

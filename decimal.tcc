@@ -4,15 +4,14 @@
 
 namespace kaiu {
 
-using namespace std;
 
 template <typename T, typename>
 decimal::decimal(T val)
 {
 	if (val < 0) {
-		throw invalid_argument("Negative value not allowed");
+		throw std::invalid_argument("Negative value not allowed");
 	}
-	digits.reserve(int(numeric_limits<T>::digits10 + 1));
+	digits.reserve(int(std::numeric_limits<T>::digits10 + 1));
 	if (val) {
 		while (val) {
 			digits.push_back(val % 10);
@@ -26,11 +25,11 @@ decimal::decimal(T val)
 template <typename T, typename>
 decimal::operator T() const
 {
-	const T max = numeric_limits<T>::max();
+	const T max = std::numeric_limits<T>::max();
 	T r = 0;
 	for (auto digit = digits.crbegin(); digit != digits.crend(); ++digit) {
 		if ((max - *digit) / 10 < r) {
-			throw overflow_error("Overflow in conversion to fixed-width integer");
+			throw std::overflow_error("Overflow in conversion to fixed-width integer");
 		}
 		r = (r * 10) + *digit;
 	}

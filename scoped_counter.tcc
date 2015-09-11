@@ -3,7 +3,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*** ScopedCounter ***/
 
@@ -19,7 +18,7 @@ void ScopedCounter<Counter>::adjust(const Delta delta)
 	if (delta == 0) {
 		return;
 	}
-	lock_guard<mutex> lock(zero_cv_mutex);
+	std::lock_guard<std::mutex> lock(zero_cv_mutex);
 	value += delta;
 	if (value == 0) {
 		notify();
@@ -35,14 +34,14 @@ void ScopedCounter<Counter>::notify() const
 template <typename Counter>
 bool ScopedCounter<Counter>::isZero() const
 {
-	lock_guard<mutex> lock(zero_cv_mutex);
+	std::lock_guard<std::mutex> lock(zero_cv_mutex);
 	return value == 0;
 }
 
 template <typename Counter>
 void ScopedCounter<Counter>::waitForZero() const
 {
-	unique_lock<mutex> lock(zero_cv_mutex);
+	std::unique_lock<std::mutex> lock(zero_cv_mutex);
 	zero_cv.wait(lock, [this] { return value == 0; });
 }
 
@@ -79,7 +78,7 @@ ScopedCounter<Counter>::ScopedAdjustment::ScopedAdjustment(ScopedAdjustment&& ol
 	 * Zero the old instance's delta so it doesn't alter the counter and
 	 * notify_all
 	 */
-	swap(delta, old.delta);
+	std::swap(delta, old.delta);
 }
 
 }

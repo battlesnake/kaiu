@@ -5,7 +5,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*** callback_pack ***/
 
@@ -18,9 +17,9 @@ auto callback_pack<Range, Domain>::
 {
 	return callback_pack<NextRange, Domain>(
 		[after, self=*this] (Domain d) -> Promise<NextRange> {
-			return self(move(d))->then(after);
+			return self(std::move(d))->then(after);
 		},
-		[after, self=*this] (exception_ptr error) -> Promise<NextRange> {
+		[after, self=*this] (std::exception_ptr error) -> Promise<NextRange> {
 			return self.reject(error)->then(after);
 		}
 	);
@@ -41,11 +40,11 @@ Promise<Range> callback_pack<Range, Domain>::operator () (const Promise<Domain> 
 template <typename Range, typename Domain>
 Promise<Range> callback_pack<Range, Domain>::operator () (Domain d) const
 {
-	return call(promise::resolved<Domain>(move(d)));
+	return call(promise::resolved<Domain>(std::move(d)));
 }
 
 template <typename Range, typename Domain>
-Promise<Range> callback_pack<Range, Domain>::reject(exception_ptr error) const
+Promise<Range> callback_pack<Range, Domain>::reject(std::exception_ptr error) const
 {
 	return call(promise::rejected<Domain>(error));
 }
@@ -63,20 +62,20 @@ callback_pack<Range, Domain>::callback_pack(const Next next, const Handler handl
 template <typename Result>
 void PromiseState<Result>::set_result(ensure_locked lock, Result&& value)
 {
-	result = move(value);
+	result = std::move(value);
 }
 
 template <typename Result>
 Result PromiseState<Result>::get_result(ensure_locked lock)
 {
-	return move(result);
+	return std::move(result);
 }
 
 template <typename Result>
 void PromiseState<Result>::resolve(Result result)
 {
 	auto lock = get_lock();
-	set_result(lock, move(result));
+	set_result(lock, std::move(result));
 	set_state(lock, promise_state::resolved);
 }
 
@@ -86,7 +85,7 @@ void PromiseState<Result>::forward_to(NextPromise next)
 {
 	auto lock = get_lock();
 	auto resolve = [next, this] (ensure_locked lock) {
-		next->resolve(move(get_result(lock)));
+		next->resolve(std::move(get_result(lock)));
 	};
 	auto reject = [next, this] (ensure_locked lock) {
 		next->reject(get_error(lock));
@@ -132,7 +131,7 @@ Promise<NextResult> PromiseState<Result>::then(
 		try {
 			finally();
 		} catch (...) {
-			promise->reject(current_exception());
+			promise->reject(std::current_exception());
 			return false;
 		}
 		return true;
@@ -144,7 +143,7 @@ Promise<NextResult> PromiseState<Result>::then(
 			nextResult = next(get_result(lock));
 		} catch (...) {
 			if (call_finally()) {
-				promise->reject(current_exception());
+				promise->reject(std::current_exception());
 			}
 			return;
 		}
@@ -159,7 +158,7 @@ Promise<NextResult> PromiseState<Result>::then(
 			nextResult = handler(get_error(lock));
 		} catch (...) {
 			if (call_finally()) {
-				promise->reject(current_exception());
+				promise->reject(std::current_exception());
 			}
 			return;
 		}
@@ -178,10 +177,9 @@ Promise<NextResult> PromiseState<Result>::then(
 	const Except except_func,
 	const Finally finally_func)
 {
-	using namespace promise;
 	return then(
-		factory(NextFunc<NextResult>(next_func)),
-		factory(ExceptFunc<NextResult>(except_func)),
+		promise::factory(NextFunc<NextResult>(next_func)),
+		promise::factory(ExceptFunc<NextResult>(except_func)),
 		finally_func);
 }
 
@@ -194,11 +192,11 @@ void PromiseState<Result>::then(
 {
 	NextFunc<nullptr_t> then_forward = [next_func] (Result result) {
 		if (NextVoidFunc(next_func) != nullptr) {
-			next_func(move(result));
+			next_func(std::move(result));
 		}
 		return (nullptr_t) nullptr;
 	};
-	ExceptFunc<nullptr_t> except_forward = [except_func] (exception_ptr error) {
+	ExceptFunc<nullptr_t> except_forward = [except_func] (std::exception_ptr error) {
 		if (ExceptVoidFunc(except_func) != nullptr) {
 			except_func(error);
 		}
@@ -219,21 +217,21 @@ template <typename Result>
 template <typename NextResult, int dummy, typename>
 NextResult PromiseState<Result>::forward_result(Result result)
 {
-	throw logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
+	throw std::logic_error("If promise <A> is followed by promise <B>, but promise <A> has no 'next' callback, then promise <A> must produce exact same data-type as promise <B>.");
 }
 
 template <typename Result>
 template <typename NextResult>
 Promise<NextResult> PromiseState<Result>::default_next(Result result)
 {
-	return promise::resolved<NextResult>(forward_result<NextResult>(move(result)));
+	return promise::resolved<NextResult>(forward_result<NextResult>(std::move(result)));
 }
 
 template <typename Result>
 template <typename NextResult>
-Promise<NextResult> PromiseState<Result>::default_except(exception_ptr error)
+Promise<NextResult> PromiseState<Result>::default_except(std::exception_ptr error)
 {
-	rethrow_exception(error);
+	std::rethrow_exception(error);
 }
 
 template <typename Result>
@@ -254,7 +252,7 @@ auto Promise<Result>::operator ->() const -> PromiseState<DResult> *
 /* Constructor for sharing state with another promise */
 
 template <typename Result>
-Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
+Promise<Result>::Promise(std::shared_ptr<PromiseState<DResult>> const state) :
 	promise(state)
 {
 }
@@ -263,7 +261,7 @@ Promise<Result>::Promise(shared_ptr<PromiseState<DResult>> const state) :
 
 template <typename Result>
 Promise<Result>::Promise() :
-	promise(make_shared<PromiseState<DResult>>())
+	promise(std::make_shared<PromiseState<DResult>>())
 {
 }
 
@@ -296,12 +294,12 @@ template <typename Result, typename DResult>
 Promise<DResult> resolved(Result result)
 {
 	Promise<DResult> promise;
-	promise->resolve(move(result));
+	promise->resolve(std::move(result));
 	return promise;
 }
 
 template <typename Result, typename DResult>
-Promise<DResult> rejected(exception_ptr error)
+Promise<DResult> rejected(std::exception_ptr error)
 {
 	Promise<DResult> promise;
 	promise->reject(error);
@@ -309,7 +307,7 @@ Promise<DResult> rejected(exception_ptr error)
 }
 
 template <typename Result, typename DResult>
-Promise<DResult> rejected(const string& error)
+Promise<DResult> rejected(const std::string& error)
 {
 	Promise<DResult> promise;
 	promise->reject(error);
@@ -321,20 +319,20 @@ Promise<DResult> rejected(const string& error)
 template <typename Result, typename... Args>
 Factory<Result, Args...> factory(Result (*func)(Args...))
 {
-	return factory(function<Result(Args...)>(func));
+	return factory(std::function<Result(Args...)>(func));
 }
 
 template <typename Result, typename... Args>
-Factory<Result, Args...> factory(function<Result(Args...)> func)
+Factory<Result, Args...> factory(std::function<Result(Args...)> func)
 {
 	if (func == nullptr) {
 		return nullptr;
 	}
 	Factory<Result, Args...> factory_function = [func] (Args&&... args) {
 		try {
-			return promise::resolved<Result>(func(forward<Args>(args)...));
+			return promise::resolved<Result>(func(std::forward<Args>(args)...));
 		} catch (...) {
-			return promise::rejected<Result>(current_exception());
+			return promise::rejected<Result>(std::current_exception());
 		}
 	};
 	return factory_function;
@@ -345,24 +343,24 @@ Factory<Result, Args...> factory(function<Result(Args...)> func)
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
 struct HeterogenousCombineState {
-	mutex state_lock;
+	std::mutex state_lock;
 	Promise<NextResult> nextPromise;
 	NextResult results;
-	size_t remaining = tuple_size<NextResult>::value;
+	size_t remaining = std::tuple_size<NextResult>::value;
 	bool failed = false;
 	template <typename Result, const size_t index>
 	void next(Result result)
 	{
-		lock_guard<mutex> lock(state_lock);
+		std::lock_guard<std::mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
-		get<index>(results) = move(result);
+		std::get<index>(results) = std::move(result);
 	}
-	void handler(exception_ptr error)
+	void handler(std::exception_ptr error)
 	{
 		{
-			lock_guard<mutex> lock(state_lock);
+			std::lock_guard<std::mutex> lock(state_lock);
 			if (failed) {
 				return;
 			}
@@ -374,12 +372,12 @@ struct HeterogenousCombineState {
 	{
 		bool resolved;
 		{
-			lock_guard<mutex> lock(state_lock);
+			std::lock_guard<std::mutex> lock(state_lock);
 			remaining--;
 			resolved = remaining == 0 && !failed;
 		}
 		if (resolved) {
-			nextPromise->resolve(move(results));
+			nextPromise->resolve(std::move(results));
 		}
 	}
 };
@@ -388,14 +386,14 @@ struct HeterogenousCombineState {
 template <typename NextResult>
 struct HeterogenousCombineIterator {
 	using State = HeterogenousCombineState<NextResult>;
-	shared_ptr<State> state;
+	std::shared_ptr<State> state;
 	template <typename PromiseType, const size_t index>
 	void operator ()(PromiseType promise)
 	{
-		using Result = typename decay<PromiseType>::type::result_type;
+		using Result = typename std::decay<PromiseType>::type::result_type;
 		const auto next = [state = state] (Result result)
-			{ return state->template next<Result, index>(move(result)); };
-		const auto handler = [state = state] (exception_ptr error)
+			{ return state->template next<Result, index>(std::move(result)); };
+		const auto handler = [state = state] (std::exception_ptr error)
 			{ return state->handler(error); };
 		const auto finalizer = [state = state] ()
 			{ state->finally(); };
@@ -404,13 +402,13 @@ struct HeterogenousCombineIterator {
 };
 
 template <typename... Result>
-Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... promise)
+Promise<std::tuple<typename std::decay<Result>::type...>> combine(Promise<Result>&&... promise)
 {
-	using NextResult = tuple<Result...>;
+	using NextResult = std::tuple<Result...>;
 	/* Convert promise pack to tuple */
-	auto promises = make_tuple(forward<Promise<Result>>(promise)...);
+	auto promises = std::make_tuple(std::forward<Promise<Result>>(promise)...);
 	/* State */
-	auto state = make_shared<HeterogenousCombineState<NextResult>>();
+	auto state = std::make_shared<HeterogenousCombineState<NextResult>>();
 	/* Template metaprogramming "dynamically typed" functional fun */
 	tuple_each_with_index(promises,
 		HeterogenousCombineIterator<NextResult>{state});
@@ -423,9 +421,9 @@ Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... pro
 /* State object, shared between callbacks on all promises */
 template <typename NextResult>
 struct HomogenousCombineState {
-	mutex state_lock;
-	Promise<vector<NextResult>> nextPromise;
-	vector<NextResult> results;
+	std::mutex state_lock;
+	Promise<std::vector<NextResult>> nextPromise;
+	std::vector<NextResult> results;
 	size_t remaining;
 	bool failed = false;
 	HomogenousCombineState(const size_t count) :
@@ -434,16 +432,16 @@ struct HomogenousCombineState {
 	using Result = NextResult;
 	void next(const size_t index, Result result)
 	{
-		lock_guard<mutex> lock(state_lock);
+		std::lock_guard<std::mutex> lock(state_lock);
 		if (failed) {
 			return;
 		}
-		results[index] = move(result);
+		results[index] = std::move(result);
 	}
-	void handler(exception_ptr error)
+	void handler(std::exception_ptr error)
 	{
 		{
-			lock_guard<mutex> lock(state_lock);
+			std::lock_guard<std::mutex> lock(state_lock);
 			if (failed) {
 				return;
 			}
@@ -455,12 +453,12 @@ struct HomogenousCombineState {
 	{
 		bool resolved;
 		{
-			lock_guard<mutex> lock(state_lock);
+			std::lock_guard<std::mutex> lock(state_lock);
 			remaining--;
 			resolved = remaining == 0 && !failed;
 		}
 		if (resolved) {
-			nextPromise->resolve(move(results));
+			nextPromise->resolve(std::move(results));
 		}
 	}
 };
@@ -469,13 +467,13 @@ struct HomogenousCombineState {
 template <typename NextResult>
 struct HomogenousCombineIterator {
 	using State = HomogenousCombineState<NextResult>;
-	shared_ptr<State> state;
+	std::shared_ptr<State> state;
 	using Result = NextResult;
 	void operator ()(Promise<Result> promise, const size_t index)
 	{
 		const auto next = [state = state, index] (Result result)
-			{ return state->next(index, move(result)); };
-		const auto handler = [state = state] (exception_ptr error)
+			{ return state->next(index, std::move(result)); };
+		const auto handler = [state = state] (std::exception_ptr error)
 			{ return state->handler(error); };
 		const auto finalizer = [state = state] ()
 			{ return state->finalizer(); };
@@ -484,9 +482,9 @@ struct HomogenousCombineIterator {
 };
 
 template <typename It, typename Result>
-Promise<vector<Result>> combine(It first, It last, const size_t size)
+Promise<std::vector<Result>> combine(It first, It last, const size_t size)
 {
-	auto state = make_shared<HomogenousCombineState<Result>>(size);
+	auto state = std::make_shared<HomogenousCombineState<Result>>(size);
 	size_t index = 0;
 	for (It it = first; it != last; ++it, ++index) {
 		HomogenousCombineIterator<Result>{state}(*it, index);
@@ -496,13 +494,13 @@ Promise<vector<Result>> combine(It first, It last, const size_t size)
 }
 
 template <typename It, typename Result>
-Promise<vector<Result>> combine(It first, It last)
+Promise<std::vector<Result>> combine(It first, It last)
 {
 	return combine<It, Result>(first, last, distance(first, last));
 }
 
 template <typename List, typename Result>
-Promise<vector<Result>> combine(List promises)
+Promise<std::vector<Result>> combine(List promises)
 {
 	return combine<typename List::iterator>(
 		promises.begin(),

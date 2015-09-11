@@ -10,10 +10,10 @@ Promise<DResult> resolved(Result result);
 
 /* Construct a rejected promise */
 template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> rejected(exception_ptr error);
+Promise<DResult> rejected(std::exception_ptr error);
 
 template <typename Result, typename DResult = typename remove_cvr<Result>::type>
-Promise<DResult> rejected(const string& error);
+Promise<DResult> rejected(const std::string& error);
 
 /*
  * Convert function to promise factory
@@ -34,7 +34,7 @@ Promise<DResult> rejected(const string& error);
  * Returns nullptr iff func==nullptr
  */
 template <typename Result, typename... Args>
-using Factory = function<Promise<Result>(Args...)>;
+using Factory = std::function<Promise<Result>(Args...)>;
 
 nullptr_t factory(nullptr_t);
 
@@ -42,7 +42,7 @@ template <typename Result, typename... Args>
 Factory<Result, Args...> factory(Result (*func)(Args...));
 
 template <typename Result, typename... Args>
-Factory<Result, Args...> factory(function<Result(Args...)> func);
+Factory<Result, Args...> factory(std::function<Result(Args...)> func);
 
 }
 

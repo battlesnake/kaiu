@@ -24,13 +24,12 @@
 
 namespace kaiu {
 
-using namespace std;
 
 template <typename Result, typename Datum>
 class PromiseStream : public PromiseLike {
-	static_assert(!is_void<Result>::value, "Void promise streams are not supported");
+	static_assert(!std::is_void<Result>::value, "Void promise streams are not supported");
 	static_assert(!is_promise<Result>::value, "Promise of promise is probably not intended");
-	static_assert(!is_void<Datum>::value, "Void promise streams are not supported");
+	static_assert(!std::is_void<Datum>::value, "Void promise streams are not supported");
 	static_assert(!is_promise<Datum>::value, "Promise of promise is probably not intended");
 public:
 	using result_type = Result;
@@ -46,9 +45,9 @@ public:
 	/* Access promise state (then/except/finally/resolve/reject) */
 	PromiseStreamState<Result, Datum> *operator ->() const;
 protected:
-	PromiseStream(shared_ptr<PromiseStreamState<Result, Datum>> const stream);
+	PromiseStream(std::shared_ptr<PromiseStreamState<Result, Datum>> const stream);
 private:
-	shared_ptr<PromiseStreamState<Result, Datum>> stream;
+	std::shared_ptr<PromiseStreamState<Result, Datum>> stream;
 };
 
 }

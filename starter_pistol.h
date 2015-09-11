@@ -4,7 +4,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*
  * Starter Pistol
@@ -25,8 +24,8 @@ public:
 	void reset(const int racers);
 private:
 	int racers{0};
-	condition_variable trigger;
-	mutex trigger_mutex;
+	std::condition_variable trigger;
+	std::mutex trigger_mutex;
 };
 
 }

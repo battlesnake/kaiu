@@ -10,7 +10,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 namespace detail {
 
@@ -27,32 +26,32 @@ class shared_functor {
 private:
 	struct functor_state {
 #if defined(SAFE_SHARED_FUNCTORS)
-		atomic_flag called{ATOMIC_FLAG_INIT};
+		std::atomic_flag called{ATOMIC_FLAG_INIT};
 #endif
 		F ptr;
-		functor_state(F&& f) : ptr(move(f)) { }
+		functor_state(F&& f) : ptr(std::move(f)) { }
 	};
-	shared_ptr<functor_state> state;
+	std::shared_ptr<functor_state> state;
 public:
 	explicit shared_functor(F&& f) :
-		state(make_shared<functor_state>(move(f)))
+		state(std::make_shared<functor_state>(std::move(f)))
 			{ }
 	template <typename... Args>
 	void operator () (Args&&... args)
 	{
 #if defined(SAFE_SHARED_FUNCTORS)
-		if (state->called.test_and_set(memory_order_release)) {
-			throw logic_error("Shared functor called more than once");
+		if (state->called.test_and_set(std::memory_order_release)) {
+			throw std::logic_error("Shared functor called more than once");
 		}
 #endif
-		state->ptr(forward<Args>(args)...);
+		state->ptr(std::forward<Args>(args)...);
 	}
 };
 
 template <typename F>
-shared_functor<typename decay<F>::type> make_shared_functor(F&& functor)
+shared_functor<typename std::decay<F>::type> make_shared_functor(F&& functor)
 {
-	return shared_functor<typename decay<F>::type>(move(functor));
+	return shared_functor<typename std::decay<F>::type>(std::move(functor));
 }
 
 }

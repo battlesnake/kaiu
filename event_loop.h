@@ -14,11 +14,10 @@
 
 namespace kaiu {
 
-using namespace std;
 
 class EventLoop;
 
-using EventFunc = function<void(EventLoop&)>;
+using EventFunc = std::function<void(EventLoop&)>;
 
 enum class EventLoopPool : int {
 	same = -2,
@@ -54,7 +53,7 @@ public:
 	virtual void push(const EventLoopPool pool, const EventFunc& event) = 0;
 	void push(const EventFunc& event) { push(defaultPool, event); }
 protected:
-	using Event = unique_ptr<EventFunc>;
+	using Event = std::unique_ptr<EventFunc>;
 	EventLoop(const EventLoopPool defaultPool = EventLoopPool::reactor);
 	virtual ~EventLoop() = default;
 	virtual Event next(const EventLoopPool pool) = 0;
@@ -79,7 +78,7 @@ protected:
 	virtual Event next(const EventLoopPool pool) override;
 	Event next() { return next(EventLoopPool::reactor); }
 private:
-	queue<Event> events;
+	std::queue<Event> events;
 	void do_loop();
 };
 
@@ -95,10 +94,10 @@ class ParallelEventLoop : public virtual EventLoop {
 public:
 	ParallelEventLoop& operator =(const ParallelEventLoop &) = delete;
 	ParallelEventLoop(const ParallelEventLoop &) = delete;
-	ParallelEventLoop(const unordered_map<EventLoopPool, int, EventLoopPoolHash> pools);
+	ParallelEventLoop(const std::unordered_map<EventLoopPool, int, EventLoopPoolHash> pools);
 	virtual ~ParallelEventLoop() override;
 	/* If handler is nullptr, the exceptions are discarded */
-	void process_exceptions(function<void(exception_ptr)> handler);
+	void process_exceptions(std::function<void(std::exception_ptr)> handler);
 	virtual void push(const EventLoopPool pool, const EventFunc& event) override;
 	/*
 	 * Returns when all threads are idle and no events are pending.
@@ -106,7 +105,7 @@ public:
 	 * Calls handler on all queued exceptions and on any that are queued during
 	 * the wait.
 	 */
-	void join(function<void(exception_ptr)> handler = nullptr);
+	void join(std::function<void(std::exception_ptr)> handler = nullptr);
 	/*
 	 * Get which pool the current thread is in.  Returns unknown if not a
 	 * ParallelEventLoop-pooled thread, e.g. the application's main thread.
@@ -116,11 +115,11 @@ protected:
 	virtual Event next(const EventLoopPool pool) override;
 private:
 	/* Threads */
-	vector<thread> threads;
+	std::vector<std::thread> threads;
 	/* Event queues (one per pool) */
-	unordered_map<EventLoopPool, ConcurrentQueue<Event>, EventLoopPoolHash> queues;
+	std::unordered_map<EventLoopPool, ConcurrentQueue<Event>, EventLoopPoolHash> queues;
 	/* Exception queue */
-	ConcurrentQueue<exception_ptr> exceptions{true};
+	ConcurrentQueue<std::exception_ptr> exceptions{true};
 	/* Cause all threads to start at the same time */
 	StarterPistol starter_pistol;
 	/*

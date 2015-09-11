@@ -14,7 +14,7 @@ namespace promise {
  * the promises.
  */
 template <typename... Result>
-Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... promise);
+Promise<std::tuple<typename std::decay<Result>::type...>> combine(Promise<Result>&&... promise);
 
 /*
  * Takes an iterable of homogenous promises and returns a single promise that
@@ -27,13 +27,13 @@ Promise<tuple<typename decay<Result>::type...>> combine(Promise<Result>&&... pro
  * support move semantics.
  */
 template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
-Promise<vector<Result>> combine(It first, It last, const size_t size);
+Promise<std::vector<Result>> combine(It first, It last, const size_t size);
 
 template <typename It, typename Result = typename remove_cvr<typename It::value_type::result_type>::type>
-Promise<vector<Result>> combine(It first, It last);
+Promise<std::vector<Result>> combine(It first, It last);
 
 template <typename List, typename Result = typename remove_cvr<typename List::value_type::result_type>::type>
-Promise<vector<Result>> combine(List promises);
+Promise<std::vector<Result>> combine(List promises);
 
 }
 

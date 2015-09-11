@@ -4,7 +4,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 /*** AsyncPromiseStreamState ***/
 
@@ -21,10 +20,10 @@ AsyncPromiseStreamState<Result, Datum>::AsyncPromiseStreamState(
 template <typename Result, typename Datum>
 void AsyncPromiseStreamState<Result, Datum>::call_data_callback(Datum datum)
 {
-	auto functor = [this, datum = move(datum)] () mutable {
-		PromiseStreamState<Result, Datum>::call_data_callback(move(datum));
+	auto functor = [this, datum = std::move(datum)] () mutable {
+		PromiseStreamState<Result, Datum>::call_data_callback(std::move(datum));
 	};
-	auto wrapper = detail::make_shared_functor(move(functor));
+	auto wrapper = detail::make_shared_functor(std::move(functor));
 	loop.push(stream_pool, wrapper);
 }
 
@@ -32,18 +31,18 @@ template <typename Result, typename Datum>
 auto AsyncPromiseStreamState<Result, Datum>::resolve_completer(Result result)
 	-> completer_func
 {
-	auto functor = PromiseStreamState<Result, Datum>::bind_resolve(move(result));
-	return [this, functor = move(functor)] {
+	auto functor = PromiseStreamState<Result, Datum>::bind_resolve(std::move(result));
+	return [this, functor = std::move(functor)] {
 		loop.push(react_pool, functor);
 	};
 }
 
 template <typename Result, typename Datum>
-auto AsyncPromiseStreamState<Result, Datum>::reject_completer(exception_ptr error)
+auto AsyncPromiseStreamState<Result, Datum>::reject_completer(std::exception_ptr error)
 	-> completer_func
 {
 	auto functor = PromiseStreamState<Result, Datum>::bind_reject(error);
-	return [this, functor = move(functor)] {
+	return [this, functor = std::move(functor)] {
 		loop.push(react_pool, functor);
 	};
 }
@@ -55,7 +54,7 @@ AsyncPromiseStream<Result, Datum>::AsyncPromiseStream(EventLoop& loop,
 	const EventLoopPool stream_pool,
 	const EventLoopPool react_pool) :
 		PromiseStream<Result, Datum>(
-			make_shared<AsyncPromiseStreamState<Result, Datum>>(loop, stream_pool, react_pool))
+			std::make_shared<AsyncPromiseStreamState<Result, Datum>>(loop, stream_pool, react_pool))
 {
 }
 
@@ -79,13 +78,13 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 			(Datum datum) -> Promise<StreamAction>
 		{
 			Promise<StreamAction> consumer_action;
-			auto proxy = [stream, consumer_action, datum = move(datum)]
+			auto proxy = [stream, consumer_action, datum = std::move(datum)]
 				(EventLoop&) mutable -> void
 			{
 				try {
-					stream->write(move(datum));
+					stream->write(std::move(datum));
 				} catch (...) {
-					consumer_action->reject(current_exception());
+					consumer_action->reject(std::current_exception());
 					return;
 				}
 				consumer_action->resolve(stream->data_action());
@@ -100,14 +99,14 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 		{
 			auto resolve = [stream, reaction_pool, &loop] (Result result) -> void
 			{
-				auto proxy = [stream, result = move(result)]
+				auto proxy = [stream, result = std::move(result)]
 					(EventLoop&) mutable -> void
 				{
-					stream->resolve(move(result));
+					stream->resolve(std::move(result));
 				};
 				loop.push(reaction_pool, detail::make_shared_functor(proxy));
 			};
-			auto reject = [stream, reaction_pool, &loop] (exception_ptr error) -> void
+			auto reject = [stream, reaction_pool, &loop] (std::exception_ptr error) -> void
 			{
 				auto proxy = [stream, error] (EventLoop&) -> void
 				{
@@ -115,7 +114,7 @@ UnboundTaskStream<Result, Datum, Args...> task_stream(
 				};
 				loop.push(reaction_pool, proxy);
 			};
-			factory(forward<Args>(args)...)
+			factory(std::forward<Args>(args)...)
 				->stream(consumer)
 				->then(resolve, reject);
 		};

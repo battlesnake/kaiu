@@ -11,18 +11,17 @@
 
 namespace kaiu {
 
-using namespace std;
 
 class decimal {
 public:
 	using digit = char;
 	decimal();
-	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
+	template <typename T, typename = typename std::enable_if<std::numeric_limits<T>::is_integer>::type>
 	decimal(T val);
-	decimal(const string& val);
-	explicit operator string() const;
+	decimal(const std::string& val);
+	explicit operator std::string() const;
 	explicit operator bool() const;
-	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
+	template <typename T, typename = typename std::enable_if<std::numeric_limits<T>::is_integer>::type>
 	explicit operator T() const;
 	digit& operator [](const size_t index);
 	digit operator [](const size_t index) const;
@@ -43,11 +42,11 @@ public:
 	bool operator >=(const decimal& b) const;
 	bool operator <(const decimal& b) const;
 	bool operator <=(const decimal& b) const;
-	template <typename T, typename = typename enable_if<numeric_limits<T>::is_integer>::type>
+	template <typename T, typename = typename std::enable_if<std::numeric_limits<T>::is_integer>::type>
 	bool operator ==(const T& b) const;
 	static decimal parallel_multiply(const decimal&, const decimal&);
 private:
-	vector<digit> digits;
+	std::vector<digit> digits;
 	void remove_lz();
 	char relation_to(const decimal& b) const;
 	bool isZero() const;

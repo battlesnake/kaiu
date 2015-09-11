@@ -6,7 +6,6 @@
 
 namespace kaiu {
 
-using namespace std;
 
 template <typename T>
 class ConcurrentQueue {
@@ -44,11 +43,11 @@ public:
 	/* Test if queue is empty */
 	bool isEmpty(bool is_locked = false) const;
 	/* Mutex is exposed for ParallelEventLoop::join */
-	mutable mutex queue_mutex;
+	mutable std::mutex queue_mutex;
 private:
-	queue<T> events;
-	condition_variable unblock;
-	atomic<bool> nowaiting{false};
+	std::queue<T> events;
+	std::condition_variable unblock;
+	std::atomic<bool> nowaiting{false};
 	void notify();
 };
 

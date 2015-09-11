@@ -18,12 +18,12 @@ UnboundTask<Result, Args...> task(
 		auto action = [factory, promise, reaction_pool, args...]
 			(EventLoop& loop) {
 			auto resolve = [promise, reaction_pool, &loop] (Result result) {
-				auto proxy = [promise, result = move(result)] (EventLoop&) mutable {
-					promise->resolve(move(result));
+				auto proxy = [promise, result = std::move(result)] (EventLoop&) mutable {
+					promise->resolve(std::move(result));
 				};
 				loop.push(reaction_pool, detail::make_shared_functor(proxy));
 			};
-			auto reject = [promise, reaction_pool, &loop] (exception_ptr error) {
+			auto reject = [promise, reaction_pool, &loop] (std::exception_ptr error) {
 				auto proxy = [promise, error] (EventLoop&) {
 					promise->reject(error);
 				};

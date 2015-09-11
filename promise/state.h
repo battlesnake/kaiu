@@ -16,18 +16,18 @@ template <typename Result>
 class PromiseState : public PromiseStateBase {
 public:
 	static_assert(
-		is_same<Result, typename remove_cvr<Result>::type>::value,
+		std::is_same<Result, typename remove_cvr<Result>::type>::value,
 		"Type parameter for promise internal state must not be cv-qualified or a reference");
 	/* "then" and "except" returning new value or next promise */
 	template <typename NextResult = Result>
-		using NextFunc = function<NextResult(Result)>;
+		using NextFunc = std::function<NextResult(Result)>;
 	template <typename NextResult = Result>
-		using ExceptFunc = function<NextResult(exception_ptr)>;
+		using ExceptFunc = std::function<NextResult(std::exception_ptr)>;
 	/* "then" and "except" ending promise chain */
 	using NextVoidFunc = NextFunc<void>;
 	using ExceptVoidFunc = ExceptFunc<void>;
 	/* "finally" doesn't return any value */
-	using FinallyFunc = function<void()>;
+	using FinallyFunc = std::function<void()>;
 	/* Default constructor */
 	PromiseState() = default;
 	using PromiseStateBase::PromiseStateBase;
@@ -46,15 +46,15 @@ public:
 	Promise<Range> then(const promise::callback_pack<Range, Result>);
 	/* Then (callbacks return immediate value) */
 	template <typename Next>
-	using ThenResult = typename result_of<Next(Result)>::type;
+	using ThenResult = typename std::result_of<Next(Result)>::type;
 	template <
 		typename Next,
 		typename NextResult = ThenResult<Next>,
 		typename Except = ExceptFunc<NextResult>,
 		typename Finally = FinallyFunc,
-		typename = typename enable_if<
+		typename = typename std::enable_if<
 			!is_promise<NextResult>::value &&
-			!is_void<NextResult>::value &&
+			!std::is_void<NextResult>::value &&
 			!is_callback_pack<Next>::value
 		>::type>
 	Promise<NextResult> then(
@@ -68,7 +68,7 @@ public:
 		typename NextResult = typename NextPromise::result_type,
 		typename Except = ExceptFunc<NextPromise>,
 		typename Finally = FinallyFunc,
-		typename = typename enable_if<
+		typename = typename std::enable_if<
 			is_promise<NextPromise>::value &&
 			!is_callback_pack<Next>::value
 		>::type>
@@ -82,8 +82,8 @@ public:
 		typename NextResult = ThenResult<Next>,
 		typename Except = ExceptVoidFunc,
 		typename Finally = FinallyFunc,
-		typename = typename enable_if<
-			is_void<NextResult>::value &&
+		typename = typename std::enable_if<
+			std::is_void<NextResult>::value &&
 			!is_callback_pack<Next>::value
 		>::type>
 	void then(
@@ -93,9 +93,9 @@ public:
 	/* Except */
 	template <
 		typename Except,
-		typename NextPromise = typename result_of<Except(exception_ptr)>::type,
+		typename NextPromise = typename std::result_of<Except(std::exception_ptr)>::type,
 		typename NextResult = typename NextPromise::result_type,
-		typename = typename enable_if<
+		typename = typename std::enable_if<
 			is_promise<NextPromise>::value
 		>::type>
 	Promise<NextResult> except(
@@ -103,10 +103,10 @@ public:
 			{ return then<NextFunc<Promise<NextResult>>>(nullptr, except_func); }
 	template <
 		typename Except,
-		typename NextResult = typename result_of<Except(exception_ptr)>::type,
-		typename = typename enable_if<
+		typename NextResult = typename std::result_of<Except(std::exception_ptr)>::type,
+		typename = typename std::enable_if<
 			!is_promise<NextResult>::value &&
-			!is_void<NextResult>::value
+			!std::is_void<NextResult>::value
 		>::type>
 	Promise<NextResult> except(
 		Except except_func)
@@ -114,9 +114,9 @@ public:
 	/* Except (end promise chain) */
 	template <
 		typename Except,
-		typename NextResult = typename result_of<Except(exception_ptr)>::type,
-		typename = typename enable_if<
-			is_void<NextResult>::value
+		typename NextResult = typename std::result_of<Except(std::exception_ptr)>::type,
+		typename = typename std::enable_if<
+			std::is_void<NextResult>::value
 		>::type>
 	void except(
 		Except except_func)
@@ -139,15 +139,15 @@ private:
 	Result result;
 	/* Helper functions to pass current value onwards if no 'next' callback */
 	template <typename NextResult,
-		typename = typename enable_if<is_same<Result, NextResult>::value>::type>
+		typename = typename std::enable_if<std::is_same<Result, NextResult>::value>::type>
 	static NextResult forward_result(Result result);
 	template <typename NextResult, int dummy = 0,
-		typename = typename enable_if<!is_same<Result, NextResult>::value>::type>
+		typename = typename std::enable_if<!std::is_same<Result, NextResult>::value>::type>
 	static NextResult forward_result(Result result);
 	template <typename NextResult>
 	static Promise<NextResult> default_next(Result result);
 	template <typename NextResult>
-	static Promise<NextResult> default_except(exception_ptr error);
+	static Promise<NextResult> default_except(std::exception_ptr error);
 	static void default_finally();
 };
 

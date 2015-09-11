@@ -6,6 +6,8 @@
 
 namespace kaiu {
 
+using namespace std;
+
 decimal::decimal() :
 	digits{0}
 {

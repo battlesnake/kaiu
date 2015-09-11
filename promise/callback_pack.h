@@ -13,16 +13,16 @@ class callback_pack {
 public:
 	using range_type = Range;
 	using domain_type = Domain;
-	static constexpr bool is_terminal = is_void<Range>::value;
-	using Next = typename conditional<
+	static constexpr bool is_terminal = std::is_void<Range>::value;
+	using Next = typename std::conditional<
 		is_terminal,
-		function<void(Domain)>,
-		function<Promise<Range>(Domain)>>::type;
-	using Handler = typename conditional<
+		std::function<void(Domain)>,
+		std::function<Promise<Range>(Domain)>>::type;
+	using Handler = typename std::conditional<
 		is_terminal,
-		function<void(exception_ptr)>,
-		function<Promise<Range>(exception_ptr)>>::type;
-	using Finalizer = function<void()>;
+		std::function<void(std::exception_ptr)>,
+		std::function<Promise<Range>(std::exception_ptr)>>::type;
+	using Finalizer = std::function<void()>;
 	/* Pack callbacks */
 	explicit callback_pack(const Next next, const Handler handler = nullptr, const Finalizer finalizer = nullptr);
 	/* Bind operator, for chaining callback packs */
@@ -31,7 +31,7 @@ public:
 	/* Bind callbacks to promise */
 	Promise<Range> operator () (const Promise<Domain> d) const;
 	Promise<Range> operator () (Domain d) const;
-	Promise<Range> reject(exception_ptr error) const;
+	Promise<Range> reject(std::exception_ptr error) const;
 	const Next next;
 	const Handler handler;
 	const Finalizer finalizer;

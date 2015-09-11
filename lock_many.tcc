@@ -6,14 +6,13 @@
 
 namespace kaiu {
 
-using namespace std;
 
 template <typename It>
 lock_many::lock_many(It begin, It end)
 {
 	/* Map mutexes to unique_lock<mutex> */
 	for ( ; begin != end; ++begin) {
-		locks.emplace_back(*begin, defer_lock);
+		locks.emplace_back(*begin, std::defer_lock);
 	}
 	const size_t count = locks.size();
 	if (count == 0) {

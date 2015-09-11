@@ -3,22 +3,21 @@
 
 namespace kaiu {
 
-using namespace std;
 
 namespace detail {
 
 template <typename Result, typename Functor, typename Args>
 Result invoke_with_tuple(Functor func, Args tuple)
 {
-	constexpr auto ArgCount = tuple_size<Args>::value;
+	constexpr auto ArgCount = std::tuple_size<Args>::value;
 	return invoke_shuffle_args<Result, Functor, Args, ArgCount>
-		(func, make_index_sequence<ArgCount>(), forward<Args>(tuple));
+		(func, std::make_index_sequence<ArgCount>(), std::forward<Args>(tuple));
 }
 
 template <typename Result, typename Functor, typename Args, size_t ArgCount, size_t... Indices>
-Result invoke_shuffle_args(Functor func, index_sequence<Indices...> indices, Args tuple)
+Result invoke_shuffle_args(Functor func, std::index_sequence<Indices...> indices, Args tuple)
 {
-	return func(get<Indices>(forward<Args>(tuple))...);
+	return func(std::get<Indices>(std::forward<Args>(tuple))...);
 }
 
 /*** CurriedFunction ***/
@@ -32,7 +31,7 @@ CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 CurriedFunction<Result, Arity, Functor, CurriedArgs...>
-	::CurriedFunction(Functor func, const tuple<CurriedArgs...>& curried_args) :
+	::CurriedFunction(Functor func, const std::tuple<CurriedArgs...>& curried_args) :
 		func(func),
 		curried_args(curried_args)
 {
@@ -51,41 +50,41 @@ CurriedFunction<Result, Arity, Functor, CurriedArgs..., ExtraArgs...>
 		CurriedArgs..., ExtraArgs...>(func,
 			tuple_cat(
 				curried_args,
-				forward_as_tuple(extra_args...)));
+				std::forward_as_tuple(extra_args...)));
 }
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <typename Arg>
 CurriedFunction<Result, Arity, Functor, CurriedArgs..., Arg&>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs...>
-		::operator << (reference_wrapper<Arg> ref) const
+		::operator << (std::reference_wrapper<Arg> ref) const
 {
 	return apply(ref.get());
 }
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <typename Arg>
-CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename decay<Arg>::type>
+CurriedFunction<Result, Arity, Functor, CurriedArgs..., typename std::decay<Arg>::type>
 	CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 		::operator << (Arg&& arg) const
 {
-	return apply(static_cast<typename decay<Arg>::type>(arg));
+	return apply(static_cast<typename std::decay<Arg>::type>(arg));
 }
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <typename... ExtraArgs>
-typename enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
+typename std::enable_if<(sizeof...(ExtraArgs) > 0), Result>::type
 CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 	::operator () (ExtraArgs&&... extra_args) const
 {
 	statically_check_args_count_for_invoke<sizeof...(CurriedArgs) + sizeof...(ExtraArgs)>();
-	return apply(forward<ExtraArgs>(extra_args)...)
+	return apply(std::forward<ExtraArgs>(extra_args)...)
 		.invoke();
 }
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <typename... ExtraArgs>
-typename enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
+typename std::enable_if<(sizeof...(ExtraArgs) == 0), Result>::type
 CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 	::operator () (ExtraArgs&&... extra_args) const
 {
@@ -95,7 +94,7 @@ CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 
 template <typename Result, size_t Arity, typename Functor, typename... CurriedArgs>
 template <size_t Arity_>
-typename enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
+typename std::enable_if<(sizeof...(CurriedArgs) == Arity_), Result>::type
 CurriedFunction<Result, Arity, Functor, CurriedArgs...>
 	::invoke () const
 {
@@ -132,7 +131,7 @@ template <typename Result, typename Functor, typename Args>
 Result invoke(Functor func, Args args)
 {
 	return detail::invoke_with_tuple<Result, Functor, Args>
-		(func, forward<Args>(args));
+		(func, std::forward<Args>(args));
 }
 
 }
