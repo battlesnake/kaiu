@@ -82,13 +82,13 @@ Grizzly details
 Promise stream states:
 
 	   ┌───────────┬──────────┬──────────┬──────────┬──────────┬────────────┐
-	   │  Name of  │   Data   │ Data in  │ Consume  │   Have   │  Promise   │
+	   │  Name of  │   Data   │ Data in  │ Consumer │   Have   │  Promise   │
 	   │   state   │ written  │  buffer  │ running  │  result  │ completed  │
 	   ├———————————┼——————————┼——————————┼——————————┼——————————┼————————————┤
 	 A │pending    │ no       │ (no)     │ (no)     │ no       │ (no)       │
 	 B │streaming1 │ yes      │ *        │ *        │ no       │ (no)       │
-	 C │streaming2 │ yes      │ yes      │ *        │ yes      │ (no)       │
-	 D │streaming3 │ yes      │ no       │ yes      │ yes      │ (no)       │
+	 C │streaming2 │ yes      │ *        │ *        │ yes      │ (no)       │
+	 D │streaming3 │ yes      │ no       │ *        │ yes      │ (no)       │
 	 E │completed  │ *        │ no       │ no       │ (yes)    │ completing │
 	   └───────────┴──────────┴──────────┴──────────┴──────────┴────────────┘
 	
