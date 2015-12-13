@@ -1,7 +1,7 @@
 Promise
 =======
 
-Inspired by Kris Kowal's Q library for JavaScript, Unlambda, and Haskell.
+Inspired by Unlambda, Haskell, and Kris Kowal's Q library for JavaScript.
 
 	run_task(arg1, arg2)
 		->then(process_result)
