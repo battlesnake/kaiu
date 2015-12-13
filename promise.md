@@ -107,7 +107,7 @@ converted to an exception).
 				}
 				/*
 				 * If we didn't catch the exception, it will result in another
-				 * resolved promise.  Errors propagate down promise chains until
+				 * rejected promise.  Errors propagate down promise chains until
 				 * they are handled.
 				 */
 			});
